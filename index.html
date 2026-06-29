@@ -218,6 +218,37 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
   <span id="mob-topbar-saldo"></span>
 </div>
 <div id="mob-overlay"></div>
+
+<!-- Modal Tutorial -->
+<div id="tutorial-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:900;align-items:center;justify-content:center;padding:1rem">
+  <div style="background:var(--card);border-radius:16px;max-width:540px;width:100%;padding:2rem;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+    <button onclick="closeTutorial()" style="position:absolute;top:1rem;right:1rem;background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px"><i class="ti ti-x"></i></button>
+    <div style="text-align:center;margin-bottom:1.5rem">
+      <div style="font-size:28px;margin-bottom:.5rem">👋</div>
+      <div style="font-size:18px;font-weight:700;color:var(--text)">Bem-vindo ao My Family Financeiro</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:.35rem">Siga esses passos para começar a usar o sistema</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="display:flex;align-items:flex-start;gap:1rem;background:var(--card2);border-radius:10px;padding:1rem">
+        <div style="background:var(--blue-d);border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-building-bank" style="color:var(--blue);font-size:18px"></i></div>
+        <div><div style="font-weight:600;font-size:14px;color:var(--text);margin-bottom:3px"><span style="color:var(--muted);font-size:12px;margin-right:6px">1</span>Cadastre suas Contas</div><div style="font-size:12px;color:var(--muted);line-height:1.5">Adicione suas contas bancárias, carteira de dinheiro físico e qualquer lugar onde você guarda dinheiro. É daqui que partem todas as movimentações.</div></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:1rem;background:var(--card2);border-radius:10px;padding:1rem">
+        <div style="background:rgba(142,68,173,0.15);border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-credit-card" style="color:var(--purple);font-size:18px"></i></div>
+        <div><div style="font-weight:600;font-size:14px;color:var(--text);margin-bottom:3px"><span style="color:var(--muted);font-size:12px;margin-right:6px">2</span>Adicione seus Cartões</div><div style="font-size:12px;color:var(--muted);line-height:1.5">Cadastre seus cartões de crédito com o limite e o dia de fechamento. As faturas são calculadas automaticamente a partir das suas despesas.</div></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:1rem;background:var(--card2);border-radius:10px;padding:1rem">
+        <div style="background:var(--green-d);border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trending-up" style="color:var(--green);font-size:18px"></i></div>
+        <div><div style="font-weight:600;font-size:14px;color:var(--text);margin-bottom:3px"><span style="color:var(--muted);font-size:12px;margin-right:6px">3</span>Registre Receitas e Despesas</div><div style="font-size:12px;color:var(--muted);line-height:1.5">Lance seus salários, renda extra, contas fixas, compras do dia a dia e despesas recorrentes. Pode marcar como pago na hora ou deixar pendente.</div></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:1rem;background:var(--card2);border-radius:10px;padding:1rem">
+        <div style="background:var(--blue-d);border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-layout-dashboard" style="color:var(--blue);font-size:18px"></i></div>
+        <div><div style="font-weight:600;font-size:14px;color:var(--text);margin-bottom:3px"><span style="color:var(--muted);font-size:12px;margin-right:6px">4</span>Acompanhe pelo Dashboard</div><div style="font-size:12px;color:var(--muted);line-height:1.5">Com tudo cadastrado, o Dashboard mostra uma visão geral do mês: o que já entrou, o que está pendente, suas despesas e o saldo em cada conta.</div></div>
+      </div>
+    </div>
+    <button onclick="closeTutorial()" style="width:100%;margin-top:1.25rem;padding:.75rem;background:var(--blue);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Entendi, vamos começar!</button>
+  </div>
+</div>
 <div id="app">
   <div id="sidebar">
     <div class="sb-header">
@@ -245,6 +276,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
     <div class="nav-section">Conta</div>
     <div class="nav-item" onclick="nav('perfil',this)"><i class="ti ti-user-circle"></i> Meu Perfil</div>
     <div class="nav-item" id="nav-admin" style="display:none" onclick="nav('admin',this)"><i class="ti ti-shield"></i> Admin</div>
+    <div class="nav-item" onclick="openTutorial()"><i class="ti ti-help-circle"></i> Ajuda</div>
     <div class="sb-footer">
       <span class="dt-time" id="dt-time">00:00:00</span>
       <span class="dt-date" id="dt-date">-</span>
@@ -721,6 +753,8 @@ function doLogin(){
       if(navAdmin) navAdmin.style.display=USERS[u].admin?'flex':'none';
       initSelects(); renderAll(); rHoje();
       nav('hoje',document.querySelector('.nav-item'));
+      var tutKey='tutorial_visto_'+u;
+      if(!localStorage.getItem(tutKey)){localStorage.setItem(tutKey,'1');setTimeout(openTutorial,600);}
     });
   } else { el('login-err').style.display='block'; }
 }
@@ -730,6 +764,8 @@ function doLogout(){
   el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
 }
+function openTutorial(){var o=el('tutorial-overlay');o.style.display='flex';}
+function closeTutorial(){var o=el('tutorial-overlay');o.style.display='none';}
 function openSidebar(){
   el('sidebar').classList.add('mob-open');
   el('mob-overlay').classList.add('show');
