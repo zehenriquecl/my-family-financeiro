@@ -239,6 +239,9 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
     <div class="nav-item" onclick="nav('previsao',this)"><i class="ti ti-crystal-ball"></i> Previsao</div>
     <div class="nav-item" onclick="nav('historico',this)"><i class="ti ti-history"></i> Historico</div>
     <div class="nav-item" onclick="nav('relatorio',this)"><i class="ti ti-file-text"></i> Relatorio</div>
+    <div class="nav-section">Conta</div>
+    <div class="nav-item" onclick="nav('perfil',this)"><i class="ti ti-user-circle"></i> Meu Perfil</div>
+    <div class="nav-item" id="nav-admin" style="display:none" onclick="nav('admin',this)"><i class="ti ti-shield"></i> Admin</div>
     <div class="sb-footer">
       <span class="dt-time" id="dt-time">00:00:00</span>
       <span class="dt-date" id="dt-date">-</span>
@@ -309,6 +312,34 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
     <div id="sec-previsao" class="section"><div class="sec-title"><span><i class="ti ti-crystal-ball"></i> Previsao — proximos 6 meses</span></div><div class="prev-grid" id="prev-grid"></div></div>
     <div id="sec-historico" class="section"><div class="sec-title"><span><i class="ti ti-history"></i> Historico</span></div><div class="prev-grid" id="hist-grid"></div></div>
     <div id="sec-relatorio" class="section"><div class="sec-title"><span><i class="ti ti-file-text"></i> Relatorio</span><div style="display:flex;gap:8px;align-items:center"><select id="rel-mes" class="sel-mes" onchange="rRel()"></select><button class="btn-sm" onclick="printRel()"><i class="ti ti-printer"></i> Imprimir</button></div></div><div id="rel-content"></div></div>
+
+    <div id="sec-perfil" class="section">
+      <div class="sec-title"><span><i class="ti ti-user-circle"></i> Meu Perfil</span></div>
+      <div class="tcard" style="max-width:440px;padding:1.5rem">
+        <div class="frow full" style="margin-bottom:10px"><div class="fg"><label>Nome de exibicao</label><input id="pf-nome" class="inp" style="background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%"></div></div>
+        <div style="border-top:0.5px solid var(--border);margin:1rem 0 .75rem;padding-top:1rem;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600">Alterar Senha</div>
+        <div class="frow full" style="margin-bottom:10px"><div class="fg"><label>Senha atual</label><input type="password" id="pf-senha-atual" class="inp" style="background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%"></div></div>
+        <div class="frow full" style="margin-bottom:10px"><div class="fg"><label>Nova senha</label><input type="password" id="pf-senha-nova" class="inp" style="background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%"></div></div>
+        <div class="frow full" style="margin-bottom:10px"><div class="fg"><label>Confirmar nova senha</label><input type="password" id="pf-senha-conf" class="inp" style="background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;width:100%"></div></div>
+        <div class="form-actions"><button class="btn-save" onclick="savePerfil()">Salvar</button></div>
+        <div class="form-err" id="pf-err" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div id="sec-admin" class="section">
+      <div class="sec-title"><span><i class="ti ti-shield"></i> Admin — Usuarios</span><button class="btn-sm" onclick="openForm('f-user')"><i class="ti ti-plus"></i> Novo Usuario</button></div>
+      <div id="f-user" class="form-panel">
+        <div class="frow t3">
+          <div class="fg"><label>Login (sem espacos)</label><input id="au-login" placeholder="ex: eduardo"></div>
+          <div class="fg"><label>Nome de exibicao</label><input id="au-nome" placeholder="ex: Eduardo"></div>
+          <div class="fg"><label>Senha inicial</label><input type="password" id="au-senha"></div>
+        </div>
+        <div class="form-actions"><button class="btn-save" onclick="saveNewUser()">Criar usuario</button><button class="btn-cancel" onclick="closeForm('f-user')">Cancelar</button></div>
+        <div class="form-err" id="au-err"></div>
+      </div>
+      <div class="tcard"><table class="ft"><thead><tr><th>Login</th><th>Nome</th><th>Tipo</th><th></th></tr></thead><tbody id="admin-tbody"></tbody></table></div>
+    </div>
+
   </div>
 </div>
 <div id="modal" class="modal-overlay"><div class="modal-box"><div class="modal-title"><span id="modal-ttl">Editar</span><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div><div id="modal-body"></div><div class="form-actions" style="margin-top:1rem"><button class="btn-save" onclick="saveModal()">Salvar</button><button class="btn-cancel" onclick="closeModal()">Cancelar</button></div></div></div>
@@ -353,6 +384,23 @@ function syncToSheets(){
   },800);
 }
 
+function loadUsers(callback){
+  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){ callback(); return; }
+  fetch(SCRIPT_URL+'?action=getUsers')
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res.users){ USERS=res.users; }
+      else { saveUsersToSheets(); } // primeiro acesso: salva os defaults
+      callback();
+    })
+    .catch(function(){ callback(); });
+}
+function saveUsersToSheets(){
+  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
+  fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'saveUsers',users:USERS})})
+    .catch(function(e){ console.error('saveUsers error:',e); });
+}
+
 function loadFromSheets(user,callback){
   if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){
     if(!DB[user]) DB[user]=emptyDB();
@@ -377,7 +425,7 @@ function loadFromSheets(user,callback){
 // ================================
 
 var USERS = {
-  jose:    { senha:'1234', nome:'Jose Henrique' },
+  jose:    { senha:'1234', nome:'Jose Henrique', admin:true },
   juliana: { senha:'5678', nome:'Juliana' }
 };
 
@@ -665,6 +713,8 @@ function doLogin(){
       el('login-screen').style.display='none';
       el('app').classList.add('visible');
       el('sb-nome').textContent=USERS[u].nome;
+      var navAdmin=el('nav-admin');
+      if(navAdmin) navAdmin.style.display=USERS[u].admin?'flex':'none';
       initSelects(); renderAll(); rHoje();
       nav('hoje',document.querySelector('.nav-item'));
     });
@@ -698,7 +748,7 @@ function nav(sec,e){
   if(e) e.classList.add('active');
   var s=el('sec-'+sec); if(s) s.classList.add('active');
   el('sidebar').classList.remove('mob-open');
-  var fns={hoje:rHoje,calendario:rCal,dashboard:rDash,contas:rContas,receitas:rRec,despesas:rDesp,cartoes:function(){ rCart(); rLanc(); },transferencia:popTransf,previsao:rPrev,historico:rHist,relatorio:rRel};
+  var fns={hoje:rHoje,calendario:rCal,dashboard:rDash,contas:rContas,receitas:rRec,despesas:rDesp,cartoes:function(){ rCart(); rLanc(); },transferencia:popTransf,previsao:rPrev,historico:rHist,relatorio:rRel,perfil:rPerfil,admin:rAdmin};
   if(fns[sec]) fns[sec]();
 }
 
@@ -1378,6 +1428,98 @@ function edDesp(id){
 function edCart(id){ var c=D().cartoes.find(function(x){ return x.id===id; }); openModal('Editar cartao','<div class="frow">'+mf('e-nome','Nome',c.nome)+mf('e-lim','Limite',c.lim,'number')+'</div><div class="frow">'+mf('e-fech','Fechamento',c.fech,'number')+mf('e-venc','Vencimento',c.venc,'number')+'</div>',function(){ c.nome=el('e-nome').value||c.nome; c.lim=parseFloat(el('e-lim').value)||c.lim; c.fech=parseInt(el('e-fech').value)||c.fech; c.venc=parseInt(el('e-venc').value)||c.venc; }); }
 function edLanc(id){ var l=D().lancamentos.find(function(x){ return x.id===id; }); if(!l) return; openModal('Editar lancamento','<div class="frow">'+mf('e-desc','Descricao',l.desc)+mf('e-val','Valor total',l.valor,'number')+'</div><div class="frow">'+mf('e-data','Data',l.data,'date')+mf('e-parc','Parcelas',l.parcelas,'number')+'</div>',function(){ l.desc=el('e-desc').value||l.desc; l.valor=parseFloat(el('e-val').value)||l.valor; l.data=el('e-data').value||l.data; l.parcelas=parseInt(el('e-parc').value)||l.parcelas; }); }
 
+// ===== MEU PERFIL =====
+function rPerfil(){
+  if(!CU) return;
+  var u=USERS[CU];
+  el('pf-nome').value=u.nome||'';
+  el('pf-senha-atual').value='';
+  el('pf-senha-nova').value='';
+  el('pf-senha-conf').value='';
+  el('pf-err').style.display='none';
+}
+function savePerfil(){
+  if(!CU) return;
+  var nome=el('pf-nome').value.trim();
+  var atual=el('pf-senha-atual').value;
+  var nova=el('pf-senha-nova').value;
+  var conf=el('pf-senha-conf').value;
+  var err=el('pf-err');
+  err.style.display='none';
+  if(!nome){ err.style.display='block'; err.textContent='O nome nao pode estar vazio.'; return; }
+  var u=USERS[CU];
+  // trocar senha só se algum campo de senha foi preenchido
+  if(atual||nova||conf){
+    if(atual!==u.senha){ err.style.display='block'; err.textContent='Senha atual incorreta.'; return; }
+    if(!nova){ err.style.display='block'; err.textContent='Digite a nova senha.'; return; }
+    if(nova!==conf){ err.style.display='block'; err.textContent='As senhas nao coincidem.'; return; }
+    u.senha=nova;
+  }
+  u.nome=nome;
+  el('sb-nome').textContent=nome;
+  saveUsersToSheets();
+  el('pf-senha-atual').value=''; el('pf-senha-nova').value=''; el('pf-senha-conf').value='';
+  toast('Perfil atualizado','g');
+}
+
+// ===== ADMIN =====
+function rAdmin(){
+  if(!CU||!USERS[CU].admin) return;
+  el('admin-tbody').innerHTML=Object.keys(USERS).map(function(login){
+    var u=USERS[login];
+    var isSelf=login===CU;
+    var badge=u.admin?'<span class="badge b">Admin</span>':'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--muted)">Usuario</span>';
+    var acoes='<div class="btn-group">'
+      +'<button class="btn-ed" onclick="adminEditUser(\''+login+'\')" title="Editar"><i class="ti ti-edit"></i></button>'
+      +(isSelf?'':'<button class="btn-del" onclick="adminDelUser(\''+login+'\')" title="Remover"><i class="ti ti-trash"></i></button>')
+      +'</div>';
+    return '<tr><td style="font-weight:600">'+login+'</td><td>'+u.nome+'</td><td>'+badge+'</td><td>'+acoes+'</td></tr>';
+  }).join('');
+}
+function saveNewUser(){
+  var login=el('au-login').value.trim().toLowerCase().replace(/\s/g,'');
+  var nome=el('au-nome').value.trim();
+  var senha=el('au-senha').value;
+  var err=el('au-err');
+  err.style.display='none';
+  if(!login||!nome||!senha){ err.style.display='block'; err.textContent='Preencha todos os campos.'; return; }
+  if(USERS[login]){ err.style.display='block'; err.textContent='Login "'+login+'" ja existe.'; return; }
+  USERS[login]={nome:nome,senha:senha,admin:false};
+  saveUsersToSheets();
+  closeForm('f-user');
+  el('au-login').value=''; el('au-nome').value=''; el('au-senha').value='';
+  rAdmin();
+  toast('Usuario "'+login+'" criado','g');
+}
+function adminDelUser(login){
+  if(login===CU){ toast('Voce nao pode remover a si mesmo','r'); return; }
+  if(!confirm('Remover usuario "'+login+'"? Os dados financeiros dele serao mantidos no Sheets.')) return;
+  delete USERS[login];
+  saveUsersToSheets();
+  rAdmin();
+  toast('Usuario removido','g');
+}
+function adminEditUser(login){
+  var u=USERS[login];
+  openModal('Editar usuario: '+login,
+    '<div class="frow full" style="margin-bottom:10px"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nome de exibicao</label><input id="ea-nome" value="'+u.nome+'" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div></div>'
+    +'<div class="frow full" style="margin-bottom:10px"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nova senha (deixe vazio para nao alterar)</label><input type="password" id="ea-senha" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div></div>'
+    +'<div class="frow full"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px"><input type="checkbox" id="ea-admin"'+(u.admin?' checked':'')+' style="margin-right:6px">Administrador</label></div></div>',
+    function(){
+      var novoNome=el('ea-nome').value.trim();
+      var novaSenha=el('ea-senha').value;
+      var isAdmin=el('ea-admin').checked;
+      if(novoNome) u.nome=novoNome;
+      if(novaSenha) u.senha=novaSenha;
+      if(login!==CU) u.admin=isAdmin; // nao remove admin de si mesmo
+      if(login===CU) el('sb-nome').textContent=u.nome;
+      saveUsersToSheets();
+      rAdmin();
+      toast('Usuario "'+login+'" atualizado','g');
+    }
+  );
+}
+
 // ===== EVENTS =====
 window.addEventListener('DOMContentLoaded',function(){
   el('l-user').addEventListener('keydown',function(e){ if(e.key==='Enter') el('l-pass').focus(); });
@@ -1385,6 +1527,9 @@ window.addEventListener('DOMContentLoaded',function(){
   el('modal').addEventListener('click',function(e){ if(e.target===el('modal')) closeModal(); });
   el('modal-fat').addEventListener('click',function(e){ if(e.target===el('modal-fat')) el('modal-fat').classList.remove('open'); });
   el('fd-recor').addEventListener('change',function(){ toggleDespExtra(); });
+  // Carrega usuários do Sheets antes de exibir o login
+  showLoading('Iniciando...');
+  loadUsers(function(){ hideLoading(); });
 });
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='hidden'&&CU){ clearTimeout(_syncTimer); syncToSheets(); }
