@@ -162,8 +162,8 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.g{border-color:var(--green);color:var(--green)}.toast.r{border-color:var(--red);color:var(--red)}.toast.a{border-color:var(--amber);color:var(--amber)}
 @media(max-width:700px){
-  /* Topbar fixa */
-  #mob-topbar{display:flex}
+  /* Topbar fixa — só aparece após login */
+  body.logado #mob-topbar{display:flex}
   /* Sidebar como drawer deslizante */
   #sidebar{display:flex;position:fixed;z-index:500;height:100vh;width:240px;overflow-y:auto;transform:translateX(-100%);transition:transform .25s ease}
   #sidebar.mob-open{transform:translateX(0)}
@@ -713,6 +713,7 @@ function doLogin(){
     el('login-err').style.display='none';
     loadFromSheets(u,function(){
       CU=u; filtroRecMes=MA; filtroDespMes=MA;
+      document.body.classList.add('logado');
       el('login-screen').style.display='none';
       el('app').classList.add('visible');
       el('sb-nome').textContent=USERS[u].nome;
@@ -725,7 +726,8 @@ function doLogin(){
 }
 function doLogout(){
   if(CU){ clearTimeout(_syncTimer); syncToSheets(); }
-  CU=null; el('login-screen').style.display='flex'; el('app').classList.remove('visible');
+  CU=null; document.body.classList.remove('logado');
+  el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
 }
 function openSidebar(){
