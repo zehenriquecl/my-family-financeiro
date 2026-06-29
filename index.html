@@ -1378,19 +1378,21 @@ function edConta(id){ var c=D().contas.find(function(x){ return x.id===id; }); o
 function edRec(id){
   var r=D().receitas.find(function(x){ return x.id===id; });
   var opts=D().contas.map(function(c){ return '<option value="'+c.id+'"'+(c.id===r.contaId?' selected':'')+'>'+c.banco+'</option>'; }).join('');
+  var tipoOpts=['Contrato fixo','Avulso','Salario','Freelance','Aluguel','Outros'].map(function(t){ return '<option'+(t===r.tipo?' selected':'')+'>'+t+'</option>'; }).join('');
   openModal('Editar receita',
     '<div class="frow">'+mf('e-desc','Descricao',r.desc)+mf('e-val','Valor previsto',r.valor,'number')+'</div>'+
     '<div class="frow">'+mf('e-dia','Dia vencimento',r.diaVenc,'number')+mf('e-mes','Mes ref.',r.mes||MA,'month')+'</div>'+
-    '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Conta</label><select id="e-conta" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+opts+'</select></div>',
+    '<div class="frow">'+
+    '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Categoria</label><select id="e-tipo" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+tipoOpts+'</select></div>'+
+    '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Conta</label><select id="e-conta" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+opts+'</select></div>'+
+    '</div>',
     function(){
       var novoVal=parseFloat(el('e-val').value)||r.valor;
       var diff=novoVal-r.valor;
-      // ajustar pagamentos existentes se valor mudou
       if(diff!==0){
         Object.keys(r.pagamentos).forEach(function(mes){
           var pag=r.pagamentos[mes];
           if(pag&&pag.pago){
-            // lançar ajuste no extrato
             addEx('Ajuste','Ajuste receita: '+r.desc+' ('+mn(mes)+')',diff,r.contaId);
             pag.valorRec=(pag.valorRec||r.valor)+diff;
           }
@@ -1398,6 +1400,7 @@ function edRec(id){
       }
       r.desc=el('e-desc').value||r.desc; r.valor=novoVal;
       r.diaVenc=parseInt(el('e-dia').value)||r.diaVenc; r.mes=el('e-mes').value||r.mes;
+      r.tipo=el('e-tipo').value||r.tipo;
       r.contaId=parseInt(el('e-conta').value)||r.contaId;
       el('sb-saldo').textContent=fmt(saldoTotal());
     });
@@ -1405,13 +1408,16 @@ function edRec(id){
 function edDesp(id){
   var x=D().despesas.find(function(d){ return d.id===id; }); var d=D();
   var optsVia=d.contas.map(function(c){ return '<option value="conta:'+c.id+'"'+(x.via==='conta'&&x.qual===c.id?' selected':'')+'>Conta: '+c.banco+'</option>'; }).join('')+d.cartoes.map(function(c){ return '<option value="cartao:'+c.id+'"'+(x.via==='cartao'&&x.qual===c.id?' selected':'')+'>Cartao: '+c.nome+'</option>'; }).join('');
+  var optsCat=CATS.map(function(c){ return '<option'+(c===x.cat?' selected':'')+'>'+c+'</option>'; }).join('');
   openModal('Editar despesa',
-    '<div class="frow">'+mf('e-desc','Descricao',x.desc)+mf('e-val','Valor',x.valor,'number')+'</div>'+mf('e-dia','Dia vencimento',x.diaVenc,'number')+
-    '<div class="fg" style="margin-bottom:10px;margin-top:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Pagar via</label><select id="e-via" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+optsVia+'</select></div>',
+    '<div class="frow">'+mf('e-desc','Descricao',x.desc)+mf('e-val','Valor',x.valor,'number')+'</div>'+
+    '<div class="frow">'+mf('e-dia','Dia vencimento',x.diaVenc,'number')+
+    '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Categoria</label><select id="e-cat" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+optsCat+'</select></div>'+
+    '</div>'+
+    '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Pagar via</label><select id="e-via" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+optsVia+'</select></div>',
     function(){
       var novoVal=parseFloat(el('e-val').value)||x.valor;
       var diff=novoVal-x.valor;
-      // ajustar extrato para cada mes onde essa despesa foi paga via conta
       if(diff!==0 && x.via==='conta'){
         Object.keys(x.pagamentos||{}).forEach(function(mes){
           var pag=x.pagamentos[mes];
@@ -1423,6 +1429,7 @@ function edDesp(id){
       x.desc=el('e-desc').value||x.desc;
       x.valor=novoVal;
       x.diaVenc=parseInt(el('e-dia').value)||x.diaVenc;
+      x.cat=el('e-cat').value||x.cat;
       var via=el('e-via').value;
       if(via){ var parts=via.split(':'); x.via=parts[0]; x.qual=parseInt(parts[1]); }
       el('sb-saldo').textContent=fmt(saldoTotal());
