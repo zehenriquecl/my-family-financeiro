@@ -854,7 +854,7 @@ function rHoje(){
     else if(dias===0) items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence HOJE',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:mes});
     else if(dias<=3)  items.push({tipo:'atencao',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence em '+dias+'d',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:mes});
   });
-  despesasDoMes(mes,false).forEach(function(x){
+  despesasDoMes(mes,true).forEach(function(x){
     var st=statusDespMes(x,mes); if(st==='pago') return;
     var dias=x.diaVenc-diaH;
     if(dias<0)   items.push({tipo:'urgente',icon:'ti-trending-down',desc:x.desc+' ATRASADA',sub:'Venceu dia '+x.diaVenc,val:x.valor,cat:'despesa',did:x.id,dmes:mes});
