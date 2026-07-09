@@ -1274,7 +1274,7 @@ function rDesp(){
         var btnAcao;
         if(jaFoi){ btnAcao=''; }
         else if(x.via==='cartao'){ btnAcao='<span class="badge p" style="font-size:10px">Via fatura</span>'; }
-        else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pago')+'</button>'; }
+        else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pagar')+'</button>'; }
         var row='<tr>';
         row+='<td>'+x.desc+'</td><td><span class="badge a">'+x.cat+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
         row+='<td><span class="badge b">'+x.recor+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
