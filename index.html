@@ -133,7 +133,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
 .cal-num{font-size:13px;font-weight:700;margin-bottom:4px;color:var(--muted)}
 .cal-day.hoje-d .cal-num{color:var(--blue)}
 .cal-ev{font-size:9px;padding:2px 5px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;display:block}
-.cal-ev.g{background:var(--green-d);color:var(--green)}.cal-ev.r{background:var(--red-d);color:var(--red)}.cal-ev.p{background:var(--purple-d);color:var(--purple)}
+.cal-ev.g{background:var(--green-d);color:var(--green)}.cal-ev.r{background:var(--red-d);color:var(--red)}.cal-ev.p{background:var(--purple-d);color:var(--purple)}.cal-ev.n{background:rgba(93,122,138,0.12);color:var(--muted)}
 .infos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:1rem}
 .info-card{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:1.1rem}
 .info-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600;margin-bottom:1rem}
@@ -901,7 +901,13 @@ function rCal(){
     var isH=dia===hoje.getDate()&&mes===hoje.getMonth()&&ano===hoje.getFullYear();
     var evs=[];
     receitasDoMes(mesStr).forEach(function(r){ if(r.diaVenc===dia) evs.push('<div class="cal-ev g">'+r.desc+' '+fmt(r.valor)+'</div>'); });
-    despesasDoMes(mesStr,false).forEach(function(x){ if(x.diaVenc===dia) evs.push('<div class="cal-ev r">'+x.desc+' '+fmt(x.valor)+'</div>'); });
+    despesasDoMes(mesStr,true).forEach(function(x){ if(x.diaVenc===dia) evs.push('<div class="cal-ev r">'+x.desc+' '+fmt(x.valor)+'</div>'); });
+    despesasDoMes(mesStr,false).filter(function(x){ return x.via==='cartao'; }).forEach(function(x){
+      if(x.diaVenc!==dia) return;
+      var vExib=x.valor;
+      if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; vExib=x.valor/np; }
+      evs.push('<div class="cal-ev n">'+x.desc+' '+fmt(vExib)+'</div>');
+    });
     d.cartoes.forEach(function(c){ if(c.venc===dia){ var f=getFat(c.id,mesStr); if(f>0) evs.push('<div class="cal-ev p">Fat.'+c.nome+' '+fmt(f)+'</div>'); } });
     html+='<div class="cal-day'+(isH?' hoje-d':'')+'"><div class="cal-num">'+dia+'</div>'+evs.join('')+'</div>';
   }
