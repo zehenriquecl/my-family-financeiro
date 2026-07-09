@@ -718,15 +718,37 @@ function statusFat(cart,mes){
   return cart.fatStatus[mes]||'aberta';
 }
 
-// Credito comprometido
+// Credito comprometido: fatura do mes atual (recorrentes, avulsas, parcela atual de parcelados)
+// + parcelas futuras ainda nao cobradas de compras parceladas (essas ja ficam "reservadas" do limite)
 function creditoComprometido(cid){
-  var cart=D().cartoes.find(function(c){ return c.id===cid; }); if(!cart) return 0;
-  var tot=0;
-  for(var i=0;i<=1;i++){
-    var mes=mesPosterior(MA,i);
-    if(statusFat(cart,mes)==='paga') continue;
-    tot+=getFat(cid,mes);
-  }
+  var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return 0;
+  var mes=MA; var p=mes.split('-'); var y=parseInt(p[0]); var m=parseInt(p[1]);
+  var tot=statusFat(cart,mes)==='paga'?0:getFat(cid,mes);
+
+  d.lancamentos.filter(function(l){ return l.cartaoId===cid; }).forEach(function(l){
+    var parc=Number(l.parcelas)||1; if(parc<=1) return;
+    var ld=new Date(l.data+'T12:00:00'); var vp=l.valor/parc;
+    for(var i=0;i<parc;i++){
+      var fm=ld.getMonth()+i; var fy=ld.getFullYear()+Math.floor(fm/12); fm=fm%12;
+      if(ld.getDate()>cart.fech){ fm++; if(fm>11){fm=0;fy++;} }
+      if(fy>y||(fy===y&&fm>m-1)) tot+=vp;
+    }
+  });
+
+  d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid&&x.recor==='Parcelado'; }).forEach(function(x){
+    var np=parseInt(x.parcelas)||1; var vp=x.valor/np;
+    var mc=x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
+    if((x.diaVenc||1)>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
+    for(var i=0;i<np;i++){
+      var fm=pfm+i; var fy=pfa+Math.floor(fm/12); fm=fm%12;
+      if(fy>y||(fy===y&&fm>m-1)) tot+=vp;
+    }
+  });
+
+  (d.parcelamentosFatura||[]).filter(function(pf){ return pf.cartaoId===cid; }).forEach(function(pf){
+    (pf.parcelas||[]).forEach(function(pa){ if(pa.status!=='pago'&&pa.mes>mes) tot+=pa.valor; });
+  });
+
   return tot;
 }
 
