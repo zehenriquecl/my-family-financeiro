@@ -1271,14 +1271,20 @@ function rDesp(){
         var viaLbl=(x.via==='conta'?'Conta: ':'Cartao: ')+(viaObj?viaObj.banco||viaObj.nome:'-');
         var dataExib=mes+'-'+pad2(x.diaVenc||1);
         var jaFoi=pag&&pag.pago;
+        var np=1, valorExib=x.valor, recorLbl=x.recor;
+        if(x.recor==='Parcelado'){
+          np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.mesCad||MA).split('-');
+          var diff=(parseInt(pc[0])-parseInt(po[0]))*12+(parseInt(pc[1])-parseInt(po[1]));
+          valorExib=x.valor/np; recorLbl='Parcelado '+(diff+1)+'/'+np;
+        }
         var btnAcao;
         if(jaFoi){ btnAcao=''; }
         else if(x.via==='cartao'){ btnAcao='<span class="badge p" style="font-size:10px">Via fatura</span>'; }
         else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pagar')+'</button>'; }
         var row='<tr>';
         row+='<td>'+x.desc+'</td><td><span class="badge a">'+x.cat+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
-        row+='<td><span class="badge b">'+x.recor+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
-        row+='<td style="font-weight:700;color:var(--red)">'+fmt(x.valor)+'</td><td>'+badgeDesp(st)+'</td>';
+        row+='<td><span class="badge b">'+recorLbl+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
+        row+='<td style="font-weight:700;color:var(--red)">'+fmt(valorExib)+'</td><td>'+badgeDesp(st)+'</td>';
         row+='<td><div class="btn-group">'+btnAcao+'<button class="btn-ed" onclick="edDesp('+x.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delDesp('+x.id+')"><i class="ti ti-trash"></i></button></div></td></tr>';
         return row;
       }).join('');
@@ -1335,9 +1341,14 @@ function rLanc(){
     if((x.diaVenc||1)>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     if(fy<pfa||(fy===pfa&&fm2-1<pfm)) return;
     if(x.recor==='Unico'&&(fm2-1!==pfm||fy!==pfa)) return;
-    if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; var md=(fy-pfa)*12+((fm2-1)-pfm); if(md<0||md>=np) return; }
+    var parcNum=1, np=1, vp=x.valor, tipo='Recorrente';
+    if(x.recor==='Parcelado'){
+      np=parseInt(x.parcelas)||1; var md=(fy-pfa)*12+((fm2-1)-pfm);
+      if(md<0||md>=np) return;
+      parcNum=md+1; vp=x.valor/np; tipo='Parcelado';
+    }
     if(x.recor==='Anual'&&fm2-1!==pfm) return;
-    rows.push({desc:x.desc,cart:cart,cat:x.cat,parc:1,tot:1,vp:x.valor,tipo:'Recorrente',lid:x.id,isRec:true});
+    rows.push({desc:x.desc,cart:cart,cat:x.cat,parc:parcNum,tot:np,vp:vp,tipo:tipo,lid:x.id,isRec:true});
   });
   // Saldo anterior na fatura
   (d.ajustesFatura||[]).filter(function(a){ return a.destinoMes===fm&&(!fc||a.cartaoId===parseInt(fc)); }).forEach(function(a){
