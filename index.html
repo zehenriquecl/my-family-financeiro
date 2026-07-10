@@ -619,13 +619,13 @@ function despesasDoMes(mes,soContaCorrente){
   var lista=[];
   D().despesas.forEach(function(x){
     if(soContaCorrente&&x.via==='cartao') return;
-    if(x.recor==='Unico'){ var mc=x.mesCad||MA; if(mc===mes) lista.push(x); return; }
+    if(x.recor==='Unico'){ var mc=x.inicioMes||x.mesCad||MA; if(mc===mes) lista.push(x); return; }
     if(x.recor==='Parcelado'){
-      var np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.mesCad||MA).split('-');
+      var np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.inicioMes||x.mesCad||MA).split('-');
       var diff=(parseInt(pc[0])-parseInt(po[0]))*12+(parseInt(pc[1])-parseInt(po[1]));
       if(diff>=0&&diff<np) lista.push(x); return;
     }
-    if(x.recor==='Anual'){ if(mes.split('-')[1]===(x.mesCad||MA).split('-')[1]) lista.push(x); return; }
+    if(x.recor==='Anual'){ if(mes.split('-')[1]===(x.inicioMes||x.mesCad||MA).split('-')[1]) lista.push(x); return; }
     var ini=x.inicioMes||x.mesCad||MA; if(mes>=ini) lista.push(x);
   });
   return lista;
@@ -654,7 +654,7 @@ function getFat(cid,mes){
 
   // 2. Despesas recorrentes no cartão
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.mesCad||MA; var pc=mc.split('-');
+    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
     var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
     if(dv>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     if(y<pfa||(y===pfa&&m-1<pfm)) return;
@@ -696,7 +696,7 @@ function getFatBruta(cid,mes){
     }
   });
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.mesCad||MA; var pc=mc.split('-');
+    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
     var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
     if(dv>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     if(y<pfa||(y===pfa&&m-1<pfm)) return;
@@ -739,7 +739,7 @@ function creditoComprometido(cid){
 
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid&&x.recor==='Parcelado'; }).forEach(function(x){
     var np=parseInt(x.parcelas)||1; var vp=x.valor/np;
-    var mc=x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
+    var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
     if((x.diaVenc||1)>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     for(var i=0;i<np;i++){
       var fm=pfm+i; var fy=pfa+Math.floor(fm/12); fm=fm%12;
@@ -1204,7 +1204,7 @@ function confirmarFatura(){
 }
 function marcarDespCartaoComoPatoNaFatura(cart,mes){
   D().despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cart.id; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.mesCad||MA; var pc=mc.split('-');
+    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
     var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
     if(dv>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     var fp=mes.split('-'); var fa=parseInt(fp[0]); var fm=parseInt(fp[1])-1;
@@ -1304,7 +1304,7 @@ function rDesp(){
         var jaFoi=pag&&pag.pago;
         var np=1, valorExib=x.valor, recorLbl=x.recor;
         if(x.recor==='Parcelado'){
-          np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.mesCad||MA).split('-');
+          np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.inicioMes||x.mesCad||MA).split('-');
           var diff=(parseInt(pc[0])-parseInt(po[0]))*12+(parseInt(pc[1])-parseInt(po[1]));
           valorExib=x.valor/np; recorLbl='Parcelado '+(diff+1)+'/'+np;
         }
@@ -1368,7 +1368,7 @@ function rLanc(){
   });
   d.despesas.filter(function(x){ return x.via==='cartao'&&(!fc||x.qual===parseInt(fc)); }).forEach(function(x){
     var cart=d.cartoes.find(function(c){ return c.id===x.qual; }); if(!cart) return;
-    var mc=x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
+    var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
     if((x.diaVenc||1)>cart.fech){ pfm++; if(pfm>11){pfm=0;pfa++;} }
     if(fy<pfa||(fy===pfa&&fm2-1<pfm)) return;
     if(x.recor==='Unico'&&(fm2-1!==pfm||fy!==pfa)) return;
@@ -1437,7 +1437,7 @@ function printRel(){
 // ===== SAVES =====
 function saveContaForm(){ var banco=el('fc-banco').value.trim(); var sal=maskedVal('fc-saldo'); if(!banco) return; D().contas.push({id:nid(),banco:banco,saldoInicial:sal}); closeForm('f-conta'); el('fc-banco').value=''; el('fc-saldo').value=''; rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
 function saveRecForm(){ var desc=el('fr-desc').value.trim(); var val=maskedVal('fr-val'); var diaVenc=parseInt(el('fr-dia').value)||1; if(!desc||!val){ el('fr-err').style.display='block'; return; } el('fr-err').style.display='none'; var ini=el('fr-inicio')?el('fr-inicio').value||MA:MA; D().receitas.push({id:nid(),desc:desc,tipo:el('fr-tipo').value,diaVenc:diaVenc,forma:el('fr-forma').value,contaId:parseInt(el('fr-conta').value),recor:el('fr-recor').value,inicioMes:ini,mes:el('fr-mes').value||MA,valor:val,pagamentos:{}}); closeForm('f-rec'); el('fr-desc').value=''; el('fr-val').value=''; el('fr-dia').value=''; rRec(); rDash(); syncToSheets(); }
-function saveDespForm(){ var desc=el('fd-desc').value.trim(); var val=maskedVal('fd-val'); var diaVenc=parseInt(el('fd-dia').value)||1; if(!desc||!val){ el('fd-err').style.display='block'; return; } el('fd-err').style.display='none'; var ini=el('fd-inicio')?el('fd-inicio').value||MA:MA; var obj={id:nid(),desc:desc,cat:el('fd-cat').value,diaVenc:diaVenc,via:el('fd-via').value,qual:parseInt(el('fd-qual').value),recor:el('fd-recor').value,mesCad:MA,inicioMes:ini,valor:val,pagamentos:{}}; if(obj.recor==='Parcelado') obj.parcelas=parseInt(el('fd-parc').value)||1; D().despesas.push(obj); closeForm('f-desp'); el('fd-desc').value=''; el('fd-val').value=''; el('fd-dia').value=''; rDesp(); rDash(); rCart(); syncToSheets(); }
+function saveDespForm(){ var desc=el('fd-desc').value.trim(); var val=maskedVal('fd-val'); var diaVenc=parseInt(el('fd-dia').value)||1; if(!desc||!val){ el('fd-err').style.display='block'; return; } el('fd-err').style.display='none'; var ini=el('fd-inicio')?el('fd-inicio').value||MA:MA; var obj={id:nid(),desc:desc,cat:el('fd-cat').value,diaVenc:diaVenc,via:el('fd-via').value,qual:parseInt(el('fd-qual').value),recor:el('fd-recor').value,mesCad:ini,inicioMes:ini,valor:val,pagamentos:{}}; if(obj.recor==='Parcelado') obj.parcelas=parseInt(el('fd-parc').value)||1; D().despesas.push(obj); closeForm('f-desp'); el('fd-desc').value=''; el('fd-val').value=''; el('fd-dia').value=''; rDesp(); rDash(); rCart(); syncToSheets(); }
 function saveCartForm(){ var nome=el('fct-nome').value.trim(); var fech=parseInt(el('fct-fech').value); var venc=parseInt(el('fct-venc').value); if(!nome||!fech||!venc) return; D().cartoes.push({id:nid(),nome:nome,band:el('fct-band').value,fech:fech,venc:venc,lim:maskedVal('fct-lim'),fatStatus:{}}); closeForm('f-cart'); el('fct-nome').value=''; el('fct-fech').value=''; el('fct-venc').value=''; el('fct-lim').value=''; rCart(); initSelects(); syncToSheets(); }
 function saveLancForm(){ var desc=el('fl-desc').value.trim(); var val=maskedVal('fl-val'); var cid=parseInt(el('fl-cart').value); var parc=parseInt(el('fl-parc').value)||1; var data=el('fl-data').value; if(!desc||!val||!data||isNaN(cid)||cid<=0){ el('fl-err').style.display='block'; return; } el('fl-err').style.display='none'; D().lancamentos.push({id:nid(),desc:desc,cartaoId:cid,cat:el('fl-cat').value,valor:val,parcelas:parc,data:data}); closeForm('f-lanc'); el('fl-desc').value=''; el('fl-val').value=''; rCart(); rLanc(); rDash(); syncToSheets(); }
 
