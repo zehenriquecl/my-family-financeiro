@@ -632,6 +632,8 @@ function despesasDoMes(mes,soContaCorrente){
 }
 // Valor da parcela do mes (despesas parceladas contam so a fatia, nao o valor total da compra)
 function valorDespMes(x){ if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; return x.valor/np; } return x.valor; }
+// Formata data ISO (YYYY-MM-DD) para o padrao brasileiro (DD-MM-YYYY)
+function fmtDataBR(iso){ if(!iso) return iso; var p=iso.split('-'); return p.length===3?p[2]+'-'+p[1]+'-'+p[0]:iso; }
 
 // ===== FATURA (com ajustes, parcelamentos e adiantamentos) =====
 function getFat(cid,mes){
@@ -1273,7 +1275,7 @@ function rRec(){
     ? '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma receita neste filtro</td></tr>'
     : lista.map(function(r){
         var st=statusRecMes(r,mes); var pag=r.pagamentos[mes];
-        var dataExib=mes+'-'+pad2(r.diaVenc||1);
+        var dataExib=fmtDataBR(mes+'-'+pad2(r.diaVenc||1));
         var ct=d.contas.find(function(c){ return c.id===r.contaId; });
         var btn='';
         if(!pag||!pag.pago) btn='<button class="btn-ok" data-rid="'+r.id+'" data-rmes="'+mes+'" onclick="abrirModalRec(this)">'+(pag&&pag.parcial?'Complementar':'Receber')+'</button>';
@@ -1300,7 +1302,7 @@ function rDesp(){
         var st=statusDespMes(x,mes); var pag=x.pagamentos[mes];
         var viaObj=x.via==='conta'?d.contas.find(function(ct){ return ct.id===x.qual; }):d.cartoes.find(function(ct){ return ct.id===x.qual; });
         var viaLbl=(x.via==='conta'?'Conta: ':'Cartao: ')+(viaObj?viaObj.banco||viaObj.nome:'-');
-        var dataExib=mes+'-'+pad2(x.diaVenc||1);
+        var dataExib=fmtDataBR(mes+'-'+pad2(x.diaVenc||1));
         var jaFoi=pag&&pag.pago;
         var np=1, valorExib=x.valor, recorLbl=x.recor;
         if(x.recor==='Parcelado'){
