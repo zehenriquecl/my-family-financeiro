@@ -333,7 +333,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
       <div id="f-cart" class="form-panel"><div class="frow"><div class="fg"><label>Nome</label><input id="fct-nome"></div><div class="fg"><label>Bandeira</label><select id="fct-band"><option>Mastercard</option><option>Visa</option><option>Elo</option></select></div></div><div class="frow t3"><div class="fg"><label>Fechamento (dia)</label><input type="number" id="fct-fech" min="1" max="31"></div><div class="fg"><label>Vencimento (dia)</label><input type="number" id="fct-venc" min="1" max="31"></div><div class="fg"><label>Limite (R$)</label><input type="text" inputmode="numeric" id="fct-lim" oninput="applyMask(this)"></div></div><div class="form-actions"><button class="btn-save" onclick="saveCartForm()">Salvar</button><button class="btn-cancel" onclick="closeForm('f-cart')">Cancelar</button></div></div>
       <div id="f-lanc" class="form-panel"><div class="frow"><div class="fg"><label>Descricao</label><input id="fl-desc"></div><div class="fg"><label>Valor total (R$)</label><input type="text" inputmode="numeric" id="fl-val" oninput="applyMask(this)"></div></div><div class="frow t3"><div class="fg"><label>Cartao</label><select id="fl-cart"></select></div><div class="fg"><label>Parcelas</label><select id="fl-parc"><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="5">5x</option><option value="6">6x</option><option value="7">7x</option><option value="8">8x</option><option value="9">9x</option><option value="10">10x</option><option value="11">11x</option><option value="12">12x</option></select></div><div class="fg"><label>Data da compra</label><input type="date" id="fl-data"></div></div><div class="frow full"><div class="fg"><label>Categoria</label><select id="fl-cat"></select></div></div><div class="form-actions"><button class="btn-save" onclick="saveLancForm()">Salvar</button><button class="btn-cancel" onclick="closeForm('f-lanc')">Cancelar</button></div><div class="form-err" id="fl-err">Preencha todos os campos.</div></div>
       <div class="cc-grid" id="cc-grid"></div>
-      <div class="tcard" style="margin-top:1rem"><div class="tcard-header"><span class="tcard-title"><i class="ti ti-list"></i> Lancamentos</span><div style="display:flex;gap:8px"><select id="lfc" class="sel-mes" onchange="rLanc()"><option value="">Todos</option></select><select id="lfm" class="sel-mes" onchange="rLanc()"></select></div></div><table class="ft"><thead><tr><th>Descricao</th><th>Cartao</th><th>Cat.</th><th>Parcela</th><th>Valor</th><th>Tipo</th><th></th></tr></thead><tbody id="lanc-tbody"></tbody></table></div>
+      <div class="tcard" style="margin-top:1rem"><div class="tcard-header"><span class="tcard-title"><i class="ti ti-list"></i> Lancamentos</span><div style="display:flex;gap:8px"><select id="lfc" class="sel-mes" onchange="rLanc()"><option value="">Todos</option></select><select id="lfm" class="sel-mes" onchange="rCart();rLanc()"></select></div></div><table class="ft"><thead><tr><th>Descricao</th><th>Cartao</th><th>Cat.</th><th>Parcela</th><th>Valor</th><th>Tipo</th><th></th></tr></thead><tbody id="lanc-tbody"></tbody></table></div>
     </div>
     <div id="sec-transferencia" class="section">
       <div class="sec-title"><span><i class="ti ti-arrows-exchange"></i> Transferencia</span></div>
@@ -724,9 +724,9 @@ function statusFat(cart,mes){
 
 // Credito comprometido: fatura do mes atual (recorrentes, avulsas, parcela atual de parcelados)
 // + parcelas futuras ainda nao cobradas de compras parceladas (essas ja ficam "reservadas" do limite)
-function creditoComprometido(cid){
+function creditoComprometido(cid,mesRef){
   var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return 0;
-  var mes=MA; var p=mes.split('-'); var y=parseInt(p[0]); var m=parseInt(p[1]);
+  var mes=mesRef||MA; var p=mes.split('-'); var y=parseInt(p[0]); var m=parseInt(p[1]);
   var tot=statusFat(cart,mes)==='paga'?0:getFat(cid,mes);
 
   d.lancamentos.filter(function(l){ return l.cartaoId===cid; }).forEach(function(l){
@@ -1325,19 +1325,19 @@ function rDesp(){
 
 // ===== CARTOES =====
 function rCart(){
-  var d=D(); var mes=MA;
+  var d=D(); var mes=el('lfm')?(el('lfm').value||MA):MA;
   el('cc-grid').innerHTML=d.cartoes.map(function(c){
     var fBruta=getFatBruta(c.id,mes); var adiant=getAdiantado(c.id,mes); var fLiq=Math.max(0,fBruta-adiant);
-    var comprometido=creditoComprometido(c.id); var pct=c.lim>0?Math.min(100,comprometido/c.lim*100):0;
+    var comprometido=creditoComprometido(c.id,mes); var pct=c.lim>0?Math.min(100,comprometido/c.lim*100):0;
     var cor=pct>80?'var(--red)':pct>50?'var(--amber)':'var(--green)';
     var st=statusFat(c,mes); var paga=st==='paga';
     var dias=c.venc-hoje.getDate();
     var ccCor=paga?'cc-verde':st==='parcelada'?'cc-parcelado':st==='parcial'?'cc-parcial':!fLiq?'':dias<0||dias===0?'cc-vermelho':dias<=3?'cc-amarelo':'';
     var fatValCor=ccCor==='cc-verde'?'var(--green)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-vermelho'?'var(--red)':cor;
     var adiantBadge=adiant>0?'<div style="font-size:10px;color:var(--muted);margin-top:2px">Total: '+fmt(fBruta)+' | Adiantado: <span style="color:var(--green)">'+fmt(adiant)+'</span></div>':'';
-    var html='<div class="cc-card '+ccCor+'">';
-    html+='<div class="cc-actions"><button class="btn-ed" onclick="edCart('+c.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delCart('+c.id+')"><i class="ti ti-trash"></i></button></div>';
-    html+='<div class="cc-name">'+c.nome+'</div><div class="cc-band">'+c.band+'</div>';
+    var html='<div class="cc-card '+ccCor+'" style="cursor:pointer" onclick="selecionarCartaoLanc('+c.id+')">';
+    html+='<div class="cc-actions" onclick="event.stopPropagation()"><button class="btn-ed" onclick="edCart('+c.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delCart('+c.id+')"><i class="ti ti-trash"></i></button></div>';
+    html+='<div class="cc-name">'+c.nome+'</div><div class="cc-band">'+c.band+(mes!==MA?' <span style="color:var(--muted)">— '+mn(mes)+'</span>':'')+'</div>';
     html+='<div class="cc-fat" style="color:'+(paga?'var(--green)':fatValCor)+'">'+fmt(fLiq)+'</div>';
     html+=adiantBadge;
     html+='<div class="cc-info" style="margin-top:4px">Fecha dia '+c.fech+' | Vence dia '+c.venc+'</div>';
@@ -1354,6 +1354,12 @@ function abrirAdianto(btn){
   // reusar abrirModalFatura mas pré-selecionar adiantar
   var cid=parseInt(btn.getAttribute('data-cid')); var mes=btn.getAttribute('data-fmes')||MA;
   abrirModalFatura(btn.getAttribute?btn:cid,mes);
+}
+function selecionarCartaoLanc(cid){
+  var lfc=el('lfc'); if(lfc) lfc.value=cid;
+  rLanc();
+  var tcard=document.querySelector('#sec-cartoes .tcard');
+  if(tcard) tcard.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function rLanc(){
   var d=D(); var fc=el('lfc')?el('lfc').value:''; var fm=el('lfm')?el('lfm').value:MA;
