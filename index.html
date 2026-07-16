@@ -1331,7 +1331,7 @@ function rCart(){
     var comprometido=creditoComprometido(c.id,mes); var pct=c.lim>0?Math.min(100,comprometido/c.lim*100):0;
     var cor=pct>80?'var(--red)':pct>50?'var(--amber)':'var(--green)';
     var st=statusFat(c,mes); var paga=st==='paga';
-    var dias=c.venc-hoje.getDate();
+    var dias=mes<MA?-1:mes>MA?99:c.venc-hoje.getDate();
     var ccCor=paga?'cc-verde':st==='parcelada'?'cc-parcelado':st==='parcial'?'cc-parcial':!fLiq?'':dias<0||dias===0?'cc-vermelho':dias<=3?'cc-amarelo':'';
     var fatValCor=ccCor==='cc-verde'?'var(--green)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-vermelho'?'var(--red)':cor;
     var adiantBadge=adiant>0?'<div style="font-size:10px;color:var(--muted);margin-top:2px">Total: '+fmt(fBruta)+' | Adiantado: <span style="color:var(--green)">'+fmt(adiant)+'</span></div>':'';
