@@ -1012,7 +1012,7 @@ function abrirModalRec(btn){
   setMasked('mr-val',restante);
   el('modal').classList.add('open');
   editCtx=function(){
-    var val=maskedVal('mr-val'); if(!val) return;
+    var val=maskedVal('mr-val'); if(!val) return false;
     var cid=parseInt(el('mr-conta').value);
     if(!r.pagamentos[rmes]) r.pagamentos[rmes]={valorRec:0};
     var pag=r.pagamentos[rmes];
@@ -1042,19 +1042,17 @@ function abrirModalDesp(btn){
   setMasked('md-val',restante);
   el('modal').classList.add('open');
   editCtx=function(){
-    var val=maskedVal('md-val'); if(!val) return;
+    var val=maskedVal('md-val'); if(!val) return false;
+    if(x.via==='conta'&&saldoConta(x.qual)<val){
+      toast('Saldo insuficiente em conta para pagar '+fmt(val),'r');
+      return false;
+    }
     if(!x.pagamentos[dmes]) x.pagamentos[dmes]={valorPago:0};
     var pag=x.pagamentos[dmes];
     pag.valorPago=(pag.valorPago||0)+val;
     pag.dataPag=hoje.toISOString().split('T')[0];
     if(pag.valorPago>=valorMes){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
-    if(x.via==='conta'){
-      if(saldoConta(x.qual)<val){
-        toast('Saldo insuficiente em conta para pagar '+fmt(val),'r');
-        return;
-      }
-      addEx('Despesa',x.desc+' ('+mn(dmes)+')',-val,x.qual);
-    }
+    if(x.via==='conta') addEx('Despesa',x.desc+' ('+mn(dmes)+')',-val,x.qual);
     toast(x.desc+' — '+fmt(val)+' pago','g');
     rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   };
@@ -1133,7 +1131,7 @@ function gerarParcelasFat(){
   for(var i=0;i<np;i++) setMasked('fat-p-'+i,vp);
 }
 function confirmarFatura(){
-  if(!fatCtx) return;
+  if(!fatCtx) return false;
   var d=D(); var cart=fatCtx.cart; var mes=fatCtx.mes; var fLiq=fatCtx.fLiq;
   var cid=parseInt(el('fat-conta').value);
   var ct=d.contas.find(function(c){ return c.id===cid; });
@@ -1144,12 +1142,12 @@ function confirmarFatura(){
     var val=maskedVal('fat-val');
     if(val < fatCtx.fLiq - 0.01){
       toast('Valor menor que a fatura ('+fmt(fatCtx.fLiq)+'). Use o modo Parcial para pagar menos.','r');
-      return;
+      return false;
     }
     if(ct){
       if(saldoConta(cid)<val){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
-        return;
+        return false;
       }
       addEx('Fatura','Fatura '+cart.nome+' ('+mn(mes)+')',-val,cid);
     }
@@ -1163,7 +1161,7 @@ function confirmarFatura(){
     if(ct&&pago>0){
       if(saldoConta(cid)<pago){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
-        return;
+        return false;
       }
       addEx('Fatura','Fatura '+cart.nome+' parcial ('+mn(mes)+')',-pago,cid);
     }
@@ -1179,7 +1177,7 @@ function confirmarFatura(){
     if(ct&&entrada>0){
       if(saldoConta(cid)<entrada){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
-        return;
+        return false;
       }
       addEx('Fatura','Entrada fatura '+cart.nome+' ('+mn(mes)+')',-entrada,cid);
     }
@@ -1198,7 +1196,7 @@ function confirmarFatura(){
     if(ct&&adiant>0){
       if(saldoConta(cid)<adiant){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
-        return;
+        return false;
       }
       addEx('Adiantamento','Adiant. fatura '+cart.nome+' ('+mn(mes)+')',-adiant,cid);
     }
@@ -1472,7 +1470,7 @@ function delLanc(id){ if(!confirm('Remover este lancamento?')) return; D().lanca
 
 // ===== MODAL EDITAR =====
 function openModal(ttl,body,ctx){ el('modal-ttl').textContent=ttl; el('modal-body').innerHTML=body; el('modal').classList.add('open'); editCtx=ctx; }
-function saveModal(){ if(!editCtx) return; editCtx(); closeModal(); renderAll(); ['contas','receitas','despesas','cartoes'].forEach(function(s){ if(el('sec-'+s)&&el('sec-'+s).classList.contains('active')){ if(s==='contas') rContas(); if(s==='receitas') rRec(); if(s==='despesas') rDesp(); if(s==='cartoes'){ rCart(); rLanc(); } } }); syncToSheets(); }
+function saveModal(){ if(!editCtx) return; var ok=editCtx(); if(ok===false) return; closeModal(); renderAll(); ['contas','receitas','despesas','cartoes'].forEach(function(s){ if(el('sec-'+s)&&el('sec-'+s).classList.contains('active')){ if(s==='contas') rContas(); if(s==='receitas') rRec(); if(s==='despesas') rDesp(); if(s==='cartoes'){ rCart(); rLanc(); } } }); syncToSheets(); }
 function mf(id,lbl,val,tp){ return '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">'+lbl+'</label><input id="'+id+'" type="'+(tp||'text')+'" value="'+val+'" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;outline:none"></div>'; }
 function edConta(id){ var c=D().contas.find(function(x){ return x.id===id; }); openModal('Editar conta','<div class="frow">'+mf('e-banco','Banco',c.banco)+mf('e-saldo','Saldo inicial',c.saldoInicial,'number')+'</div>',function(){ c.banco=el('e-banco').value||c.banco; c.saldoInicial=parseFloat(el('e-saldo').value)||0; el('sb-saldo').textContent=fmt(saldoTotal()); }); }
 function edRec(id){
