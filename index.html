@@ -634,6 +634,10 @@ function despesasDoMes(mes,soContaCorrente){
 }
 // Valor da parcela do mes (despesas parceladas contam so a fatia, nao o valor total da compra)
 function valorDespMes(x){ if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; return x.valor/np; } return x.valor; }
+// Valor ja recebido/pago no mes, incluindo recebimentos/pagamentos parciais (nao so os totalmente quitados)
+function valorRecebidoMes(r,mes){ var pag=r.pagamentos[mes]; if(!pag) return 0; return pag.pago?(pag.valorRec||r.valor):(pag.valorRec||0); }
+// despesas pagas via fatura (viaFatura:true) nao gravam valorPago individual, entao usa o valor da parcela do mes
+function valorPagoMes(x,mes){ var pag=x.pagamentos[mes]; if(!pag) return 0; return pag.pago?(pag.valorPago||valorDespMes(x)):(pag.valorPago||0); }
 // Formata data ISO (YYYY-MM-DD) para o padrao brasileiro (DD-MM-YYYY)
 function fmtDataBR(iso){ if(!iso) return iso; var p=iso.split('-'); return p.length===3?p[2]+'-'+p[1]+'-'+p[0]:iso; }
 
@@ -897,7 +901,7 @@ function rHoje(){
   });
   var urg=items.filter(function(i){ return i.tipo==='urgente'; });
   var ate=items.filter(function(i){ return i.tipo==='atencao'; });
-  var tRec=receitasDoMes(mes).filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0);
+  var tRec=receitasDoMes(mes).reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0);
   var tPrev=receitasDoMes(mes).reduce(function(a,r){ return a+r.valor; },0);
   var html='';
   if(urg.length) html+='<div class="hoje-section"><div class="hoje-section-title"><i class="ti ti-alert-triangle"></i> Urgente</div>'+urg.map(riHTML).join('')+'</div>';
@@ -949,7 +953,7 @@ function rDash(){
   if(!CU) return;
   var d=D(); var mes=el('dash-mes-sel')?el('dash-mes-sel').value:MA;
   var rm=receitasDoMes(mes);
-  var recebido=rm.filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0);
+  var recebido=rm.reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0);
   var previsto=rm.reduce(function(a,r){ return a+r.valor; },0);
   var dm=despesasDoMes(mes,true);
   var tDesp=dm.reduce(function(a,x){ return a+valorDespMes(x); },0);
@@ -1275,7 +1279,7 @@ function rRec(){
   var lista=rmTodas.filter(function(r){ var st=statusRecMes(r,mes); if(mundoRec==='todos') return true; return mundoRec===st; });
   var d=D();
   var tPrevRec=rmTodas.reduce(function(a,r){ return a+r.valor; },0);
-  var tRecebido=rmTodas.filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0);
+  var tRecebido=rmTodas.reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0);
   if(el('rec-stats')) el('rec-stats').innerHTML=sc('Previsto no mes',fmt(tPrevRec),'b')+sc('Recebido',fmt(tRecebido),'g')+sc('Falta receber',fmt(tPrevRec-tRecebido),tPrevRec-tRecebido>0?'a':'g');
   el('rec-tbody').innerHTML=lista.length===0
     ? '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma receita neste filtro</td></tr>'
@@ -1304,7 +1308,7 @@ function rDesp(){
   var lista=dmTodas.filter(function(x){ var st=statusDespMes(x,mes); if(mundoDesp==='todos') return true; if(mundoDesp==='pago') return st==='pago'; if(mundoDesp==='pendente') return st==='pendente'; if(mundoDesp==='atrasado') return st==='atrasado'; return true; });
   var d=D();
   var tPrevDesp=dmTodas.reduce(function(a,x){ return a+valorDespMes(x); },0);
-  var tPago=dmTodas.filter(function(x){ return x.pagamentos[mes]&&x.pagamentos[mes].pago; }).reduce(function(a,x){ return a+(x.pagamentos[mes].valorPago||valorDespMes(x)); },0);
+  var tPago=dmTodas.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
   if(el('desp-stats')) el('desp-stats').innerHTML=sc('Previsto no mes',fmt(tPrevDesp),'b')+sc('Pago',fmt(tPago),'g')+sc('Falta pagar',fmt(tPrevDesp-tPago),tPrevDesp-tPago>0?'a':'g');
   el('desp-tbody').innerHTML=lista.length===0
     ? '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma despesa neste filtro</td></tr>'
@@ -1423,15 +1427,15 @@ function rPrev(){
   el('prev-grid').innerHTML=h;
 }
 function rHist(){
-  var h=''; for(var i=5;i>=1;i--){ var mes=mesAnterior(MA,i); var rt=receitasDoMes(mes).filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0); var dF=despesasDoMes(mes,true).filter(function(x){ return x.pagamentos[mes]&&x.pagamentos[mes].pago; }).reduce(function(a,x){ return a+valorDespMes(x); },0); var fat=totFat(mes); var sal=rt-dF-fat; h+='<div class="prev-card"><div class="prev-mes">'+mn(mes)+'</div><div class="prev-saldo '+(sal>=0?'g':'r')+'">'+fmt(sal)+'</div><div class="prev-detail">Recebido: '+fmt(rt)+'</div><div class="prev-detail">Desp. pagas: '+fmt(dF)+'</div><div class="prev-detail">Faturas: '+fmt(fat)+'</div></div>'; }
+  var h=''; for(var i=5;i>=1;i--){ var mes=mesAnterior(MA,i); var rt=receitasDoMes(mes).reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0); var dF=despesasDoMes(mes,true).reduce(function(a,x){ return a+valorPagoMes(x,mes); },0); var fat=totFat(mes); var sal=rt-dF-fat; h+='<div class="prev-card"><div class="prev-mes">'+mn(mes)+'</div><div class="prev-saldo '+(sal>=0?'g':'r')+'">'+fmt(sal)+'</div><div class="prev-detail">Recebido: '+fmt(rt)+'</div><div class="prev-detail">Desp. pagas: '+fmt(dF)+'</div><div class="prev-detail">Faturas: '+fmt(fat)+'</div></div>'; }
   el('hist-grid').innerHTML=h||'<div style="color:var(--muted)">Sem historico</div>';
 }
 function rRel(){
   var d=D(); var mes=el('rel-mes')?el('rel-mes').value:MA;
   var rm=receitasDoMes(mes); var dm=despesasDoMes(mes,true);
-  var tR=rm.filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0);
+  var tR=rm.reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0);
   var tRPrev=rm.reduce(function(a,r){ return a+r.valor; },0);
-  var tD=dm.filter(function(x){ return x.pagamentos[mes]&&x.pagamentos[mes].pago; }).reduce(function(a,x){ return a+valorDespMes(x); },0);
+  var tD=dm.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
   var tDPrev=dm.reduce(function(a,x){ return a+valorDespMes(x); },0);
   var tF=totFat(mes); var sal=saldoTotal();
   var cats={}; despesasDoMes(mes,false).forEach(function(x){ cats[x.cat]=(cats[x.cat]||0)+valorDespMes(x); });
