@@ -311,6 +311,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
         <div class="form-actions"><button class="btn-save" onclick="saveRecForm()">Salvar</button><button class="btn-cancel" onclick="closeForm('f-rec')">Cancelar</button></div>
         <div class="form-err" id="fr-err">Preencha descricao e valor.</div>
       </div>
+      <div class="stats-grid" id="rec-stats" style="margin-bottom:12px"></div>
       <div class="mundo-tabs"><button class="mundo-tab active" onclick="setMundoRec('todos',this)">Todos</button><button class="mundo-tab" onclick="setMundoRec('pendente',this)">Pendentes</button><button class="mundo-tab" onclick="setMundoRec('recebido',this)">Recebidas</button><button class="mundo-tab" onclick="setMundoRec('atrasado',this)">Atrasadas</button></div>
       <div class="tcard"><table class="ft"><thead><tr><th>Descricao</th><th>Tipo</th><th>Forma</th><th>Conta</th><th>Vencimento</th><th>Previsto</th><th>Realizado</th><th>Status</th><th></th></tr></thead><tbody id="rec-tbody"></tbody></table></div>
     </div>
@@ -325,6 +326,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
         <div class="form-actions"><button class="btn-save" onclick="saveDespForm()">Salvar</button><button class="btn-cancel" onclick="closeForm('f-desp')">Cancelar</button></div>
         <div class="form-err" id="fd-err">Preencha descricao e valor.</div>
       </div>
+      <div class="stats-grid" id="desp-stats" style="margin-bottom:12px"></div>
       <div class="mundo-tabs"><button class="mundo-tab active" onclick="setMundoDesp('todos',this)">Todos</button><button class="mundo-tab" onclick="setMundoDesp('pendente',this)">Pendentes</button><button class="mundo-tab" onclick="setMundoDesp('pago',this)">Pagas</button><button class="mundo-tab" onclick="setMundoDesp('atrasado',this)">Atrasadas</button></div>
       <div class="tcard"><table class="ft"><thead><tr><th>Descricao</th><th>Categoria</th><th>Vencimento</th><th>Recorrencia</th><th>Via</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody id="desp-tbody"></tbody></table></div>
     </div>
@@ -1269,8 +1271,12 @@ function rContas(){
 function rRec(){
   if(!CU) return;
   var mes=el('rec-mes-sel')?el('rec-mes-sel').value:MA; filtroRecMes=mes;
-  var lista=receitasDoMes(mes).filter(function(r){ var st=statusRecMes(r,mes); if(mundoRec==='todos') return true; return mundoRec===st; });
+  var rmTodas=receitasDoMes(mes);
+  var lista=rmTodas.filter(function(r){ var st=statusRecMes(r,mes); if(mundoRec==='todos') return true; return mundoRec===st; });
   var d=D();
+  var tPrevRec=rmTodas.reduce(function(a,r){ return a+r.valor; },0);
+  var tRecebido=rmTodas.filter(function(r){ return r.pagamentos[mes]&&r.pagamentos[mes].pago; }).reduce(function(a,r){ return a+(r.pagamentos[mes].valorRec||r.valor); },0);
+  if(el('rec-stats')) el('rec-stats').innerHTML=sc('Previsto no mes',fmt(tPrevRec),'b')+sc('Recebido',fmt(tRecebido),'g')+sc('Falta receber',fmt(tPrevRec-tRecebido),tPrevRec-tRecebido>0?'a':'g');
   el('rec-tbody').innerHTML=lista.length===0
     ? '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma receita neste filtro</td></tr>'
     : lista.map(function(r){
@@ -1294,8 +1300,12 @@ function rRec(){
 function rDesp(){
   if(!CU) return;
   var mes=el('desp-mes-sel')?el('desp-mes-sel').value:MA; filtroDespMes=mes;
-  var lista=despesasDoMes(mes,false).filter(function(x){ var st=statusDespMes(x,mes); if(mundoDesp==='todos') return true; if(mundoDesp==='pago') return st==='pago'; if(mundoDesp==='pendente') return st==='pendente'; if(mundoDesp==='atrasado') return st==='atrasado'; return true; });
+  var dmTodas=despesasDoMes(mes,false);
+  var lista=dmTodas.filter(function(x){ var st=statusDespMes(x,mes); if(mundoDesp==='todos') return true; if(mundoDesp==='pago') return st==='pago'; if(mundoDesp==='pendente') return st==='pendente'; if(mundoDesp==='atrasado') return st==='atrasado'; return true; });
   var d=D();
+  var tPrevDesp=dmTodas.reduce(function(a,x){ return a+valorDespMes(x); },0);
+  var tPago=dmTodas.filter(function(x){ return x.pagamentos[mes]&&x.pagamentos[mes].pago; }).reduce(function(a,x){ return a+(x.pagamentos[mes].valorPago||valorDespMes(x)); },0);
+  if(el('desp-stats')) el('desp-stats').innerHTML=sc('Previsto no mes',fmt(tPrevDesp),'b')+sc('Pago',fmt(tPago),'g')+sc('Falta pagar',fmt(tPrevDesp-tPago),tPrevDesp-tPago>0?'a':'g');
   el('desp-tbody').innerHTML=lista.length===0
     ? '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma despesa neste filtro</td></tr>'
     : lista.map(function(x){
