@@ -621,6 +621,7 @@ function despesasDoMes(mes,soContaCorrente){
   var lista=[];
   D().despesas.forEach(function(x){
     if(soContaCorrente&&x.via==='cartao') return;
+    if(x.pulados&&x.pulados.indexOf(mes)>=0) return;
     if(x.recor==='Unico'){ var mc=x.inicioMes||x.mesCad||MA; if(mc===mes) lista.push(x); return; }
     if(x.recor==='Parcelado'){
       var np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.inicioMes||x.mesCad||MA).split('-');
@@ -1464,7 +1465,38 @@ function saveLancForm(){ var desc=el('fl-desc').value.trim(); var val=maskedVal(
 // ===== DELETES =====
 function delConta(id){ if(!confirm('Remover conta?')) return; D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
 function delRec(id){ var r=D().receitas.find(function(x){ return x.id===id; }); if(!r) return; var temPago=Object.values(r.pagamentos||{}).some(function(p){ return p.pago||p.parcial; }); if(temPago){ if(!confirm('Essa receita tem pagamentos registrados. Remover mesmo assim?')) return; } else { if(!confirm('Remover esta receita?')) return; } D().receitas=D().receitas.filter(function(x){ return x.id!==id; }); rRec(); rDash(); syncToSheets(); }
-function delDesp(id){ if(!confirm('Remover esta despesa?')) return; D().despesas=D().despesas.filter(function(x){ return x.id!==id; }); rDesp(); rDash(); rCart(); syncToSheets(); }
+function delDesp(id){
+  var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
+  var recorrenteIndef=x.recor==='Mensal'||x.recor==='Semanal'||x.recor==='Anual';
+  if(!recorrenteIndef){
+    if(!confirm('Remover esta despesa?')) return;
+    D().despesas=D().despesas.filter(function(d){ return d.id!==id; });
+    rDesp(); rDash(); rCart(); syncToSheets();
+    return;
+  }
+  var mes=filtroDespMes||MA;
+  el('modal-ttl').textContent='Excluir despesa recorrente';
+  el('modal-body').innerHTML=
+    '<p style="color:var(--muted);font-size:13px;margin-bottom:1rem">"'+x.desc+'" se repete todo mes. O que deseja fazer?</p>'+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+    '<button class="btn-sm" style="width:100%;justify-content:center" onclick="closeModal();excluirDespApenasMes('+x.id+',\''+mes+'\')">Excluir somente '+mn(mes)+'</button>'+
+    '<button class="btn-del" style="width:100%;justify-content:center" onclick="closeModal();excluirDespTodas('+x.id+')">Excluir esta e todas as outras</button>'+
+    '</div>';
+  el('modal').classList.add('open');
+  editCtx=null;
+}
+function excluirDespApenasMes(id,mes){
+  var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
+  if(!x.pulados) x.pulados=[];
+  if(x.pulados.indexOf(mes)<0) x.pulados.push(mes);
+  toast('Despesa removida apenas de '+mn(mes),'g');
+  rDesp(); rDash(); rCart(); rHoje(); syncToSheets();
+}
+function excluirDespTodas(id){
+  D().despesas=D().despesas.filter(function(d){ return d.id!==id; });
+  toast('Despesa removida','g');
+  rDesp(); rDash(); rCart(); rHoje(); syncToSheets();
+}
 function delCart(id){ if(!confirm('Remover cartao?')) return; D().cartoes=D().cartoes.filter(function(x){ return x.id!==id; }); rCart(); initSelects(); rDash(); syncToSheets(); }
 function delLanc(id){ if(!confirm('Remover este lancamento?')) return; D().lancamentos=D().lancamentos.filter(function(x){ return x.id!==id; }); rCart(); rLanc(); rDash(); syncToSheets(); }
 
