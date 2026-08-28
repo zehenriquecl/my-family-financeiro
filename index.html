@@ -485,7 +485,7 @@ var USERS = {
 
 var CATS = ['Alimentacao','Assinatura','Cuidados Pessoais','Dizimos/Ofertas','Educacao','Empregada','Juros','Lazer','Moradia','Outros','Presentes','Previdencia','Saude','Seguros','Transporte','Vestuario','Viagens'];
 
-var CU=null, editCtx=null, fatCtx=null;
+var CU=null, editCtx=null, fatCtx=null, ultimaAcaoFatura=null;
 var hoje=new Date();
 var MA=hoje.getFullYear()+'-'+pad2(hoje.getMonth()+1);
 var filtroRecMes=MA, filtroDespMes=MA;
@@ -528,8 +528,11 @@ function setMasked(id,val){
 // ===== EXTRATO =====
 function addEx(tipo,desc,valor,contaId){
   var ct=D().contas.find(function(c){ return c.id===contaId; });
-  D().extrato.push({data:hoje.toLocaleDateString('pt-BR'),desc:desc,contaId:contaId,contaNome:ct?ct.banco:'-',tipo:tipo,valor:valor});
+  var id=nid();
+  D().extrato.push({id:id,data:hoje.toLocaleDateString('pt-BR'),desc:desc,contaId:contaId,contaNome:ct?ct.banco:'-',tipo:tipo,valor:valor});
+  return id;
 }
+function removeEx(exId){ if(!exId) return; var d=D(); d.extrato=d.extrato.filter(function(e){ return e.id!==exId; }); }
 
 // ===== SALDO =====
 function saldoConta(contaId){
@@ -1129,6 +1132,7 @@ function confirmarFatura(){
   var ct=d.contas.find(function(c){ return c.id===cid; });
   var tipoBtn=document.querySelector('.fat-tipo-btn.active');
   var tipo=tipoBtn?tipoBtn.getAttribute('data-tipo'):'total';
+  var fatStatusAntes=cart.fatStatus[mes];
 
   if(tipo==='total'){
     var val=maskedVal('fat-val');
@@ -1136,42 +1140,49 @@ function confirmarFatura(){
       toast('Valor menor que a fatura ('+fmt(fatCtx.fLiq)+'). Use o modo Parcial para pagar menos.','r');
       return false;
     }
+    var exId=null;
     if(ct){
       if(saldoConta(cid)<val){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
-      addEx('Fatura','Fatura '+cart.nome+' ('+mn(mes)+')',-val,cid);
+      exId=addEx('Fatura','Fatura '+cart.nome+' ('+mn(mes)+')',-val,cid);
     }
     cart.fatStatus[mes]='paga';
-    marcarDespCartaoComoPatoNaFatura(cart,mes);
+    var tocadas=marcarDespCartaoComoPatoNaFatura(cart,mes);
+    ultimaAcaoFatura={tipo:'total',cid:cart.id,mes:mes,valor:val,fatStatusAntes:fatStatusAntes,exId:exId,despesasTocadas:tocadas,quando:new Date()};
     toast('Fatura '+cart.nome+' paga','g');
 
   } else if(tipo==='parcial'){
     var pago=maskedVal('fat-pago-agora');
     var prox=maskedVal('fat-prox');
+    var exId=null;
     if(ct&&pago>0){
       if(saldoConta(cid)<pago){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
-      addEx('Fatura','Fatura '+cart.nome+' parcial ('+mn(mes)+')',-pago,cid);
+      exId=addEx('Fatura','Fatura '+cart.nome+' parcial ('+mn(mes)+')',-pago,cid);
     }
     cart.fatStatus[mes]='parcial';
+    var ajusteId=null;
     if(prox>0){
       var proxMes=mesPosterior(mes,1);
-      d.ajustesFatura.push({id:nid(),cartaoId:cart.id,origemMes:mes,destinoMes:proxMes,tipo:'saldo_anterior',valorOriginal:fLiq-pago,valorFinal:prox,status:'pendente'});
+      ajusteId=nid();
+      d.ajustesFatura.push({id:ajusteId,cartaoId:cart.id,origemMes:mes,destinoMes:proxMes,tipo:'saldo_anterior',valorOriginal:fLiq-pago,valorFinal:prox,status:'pendente'});
     }
+    ultimaAcaoFatura={tipo:'parcial',cid:cart.id,mes:mes,valor:pago,fatStatusAntes:fatStatusAntes,exId:exId,ajusteId:ajusteId,quando:new Date()};
     toast('Pagamento parcial registrado','a');
 
   } else if(tipo==='parcelar'){
     var entrada=maskedVal('fat-entrada');
+    var exId=null;
     if(ct&&entrada>0){
       if(saldoConta(cid)<entrada){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
-      addEx('Fatura','Entrada fatura '+cart.nome+' ('+mn(mes)+')',-entrada,cid);
+      exId=addEx('Fatura','Entrada fatura '+cart.nome+' ('+mn(mes)+')',-entrada,cid);
     }
     cart.fatStatus[mes]='parcelada';
     var np=parseInt(el('fat-nparc').value)||4;
@@ -1180,19 +1191,24 @@ function confirmarFatura(){
       var inp=el('fat-p-'+i); if(!inp) continue;
       parcelas.push({mes:inp.getAttribute('data-mes'),numero:i+1,total:np,valor:maskedVal('fat-p-'+i),status:'pendente'});
     }
-    d.parcelamentosFatura.push({id:nid(),cartaoId:cart.id,origemMes:mes,valorFaturaOriginal:fatCtx.fBruta,valorEntrada:entrada,valorParcelado:fLiq-entrada,contaEntradaId:cid,dataEntrada:hoje.toISOString().split('T')[0],parcelas:parcelas});
+    var parcId=nid();
+    d.parcelamentosFatura.push({id:parcId,cartaoId:cart.id,origemMes:mes,valorFaturaOriginal:fatCtx.fBruta,valorEntrada:entrada,valorParcelado:fLiq-entrada,contaEntradaId:cid,dataEntrada:hoje.toISOString().split('T')[0],parcelas:parcelas});
+    ultimaAcaoFatura={tipo:'parcelar',cid:cart.id,mes:mes,valor:entrada,fatStatusAntes:fatStatusAntes,exId:exId,parcId:parcId,quando:new Date()};
     toast('Fatura parcelada em '+np+'x','g');
 
   } else if(tipo==='adiantar'){
     var adiant=maskedVal('fat-adiant');
+    var exId=null;
     if(ct&&adiant>0){
       if(saldoConta(cid)<adiant){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
-      addEx('Adiantamento','Adiant. fatura '+cart.nome+' ('+mn(mes)+')',-adiant,cid);
+      exId=addEx('Adiantamento','Adiant. fatura '+cart.nome+' ('+mn(mes)+')',-adiant,cid);
     }
-    d.adiantamentosFatura.push({id:nid(),cartaoId:cart.id,mes:mes,valor:adiant,data:hoje.toISOString().split('T')[0],contaId:cid});
+    var adiantId=nid();
+    d.adiantamentosFatura.push({id:adiantId,cartaoId:cart.id,mes:mes,valor:adiant,data:hoje.toISOString().split('T')[0],contaId:cid});
+    ultimaAcaoFatura={tipo:'adiantar',cid:cart.id,mes:mes,valor:adiant,fatStatusAntes:fatStatusAntes,exId:exId,adiantId:adiantId,quando:new Date()};
     toast('Adiantamento de '+fmt(adiant)+' registrado','g');
   }
 
@@ -1200,7 +1216,42 @@ function confirmarFatura(){
   rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
 }
+function reverterUltimaFatura(cid){
+  var a=ultimaAcaoFatura;
+  if(!a||a.cid!==cid) return;
+  var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return;
+  var rotulos={total:'pagamento total',parcial:'pagamento parcial',parcelar:'parcelamento',adiantar:'adiantamento'};
+  var msg='Reverter '+rotulos[a.tipo]+' de '+fmt(a.valor)+' na fatura de '+cart.nome+' ('+mn(a.mes)+'), feito as '+a.quando.toLocaleTimeString('pt-BR')+'. Confirma?';
+  if(!confirm(msg)) return;
+
+  removeEx(a.exId);
+  if(a.fatStatusAntes===undefined) delete cart.fatStatus[a.mes]; else cart.fatStatus[a.mes]=a.fatStatusAntes;
+
+  if(a.tipo==='total'){
+    (a.despesasTocadas||[]).forEach(function(t){
+      var x=d.despesas.find(function(y){ return y.id===t.despId; }); if(!x||!x.pagamentos) return;
+      if(t.prevPag===null) delete x.pagamentos[a.mes]; else x.pagamentos[a.mes]=t.prevPag;
+    });
+  } else if(a.tipo==='parcial'){
+    if(a.ajusteId) d.ajustesFatura=d.ajustesFatura.filter(function(aj){ return aj.id!==a.ajusteId; });
+  } else if(a.tipo==='parcelar'){
+    var pf=d.parcelamentosFatura.find(function(p){ return p.id===a.parcId; });
+    if(pf&&(pf.parcelas||[]).some(function(p){ return p.status!=='pendente'; })){
+      toast('Ja existe parcela paga desse parcelamento, nao e possivel reverter automaticamente.','r');
+      return;
+    }
+    d.parcelamentosFatura=d.parcelamentosFatura.filter(function(p){ return p.id!==a.parcId; });
+  } else if(a.tipo==='adiantar'){
+    d.adiantamentosFatura=d.adiantamentosFatura.filter(function(ad){ return ad.id!==a.adiantId; });
+  }
+
+  ultimaAcaoFatura=null;
+  rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
+  toast('Acao revertida','a');
+  syncToSheets();
+}
 function marcarDespCartaoComoPatoNaFatura(cart,mes){
+  var tocadas=[];
   D().despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cart.id; }).forEach(function(x){
     var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
     var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
@@ -1211,8 +1262,10 @@ function marcarDespCartaoComoPatoNaFatura(cart,mes){
     if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; var md=(fa-pfa)*12+(fm-pfm); if(md<0||md>=np) return; }
     if(x.recor==='Anual'&&fm!==pfm) return;
     if(!x.pagamentos) x.pagamentos={};
+    tocadas.push({despId:x.id,prevPag:x.pagamentos[mes]?JSON.parse(JSON.stringify(x.pagamentos[mes])):null});
     x.pagamentos[mes]={pago:true,dataPag:hoje.toISOString().split('T')[0],viaFatura:true};
   });
+  return tocadas;
 }
 
 // Transferencia
@@ -1351,6 +1404,7 @@ function rCart(){
     html+='<div class="cc-lim">'+pct.toFixed(0)+'% comprometido de '+fmt(c.lim)+' | Fatura atual: '+fmt(fLiq)+'</div>';
     html+='<div class="cc-status-row"><span class="cc-status-lbl" style="color:'+(paga?'var(--green)':ccCor==='cc-vermelho'?'var(--red)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-parcelado'?'var(--amber)':ccCor==='cc-parcial'?'#E67E22':'var(--muted)')+'">'+st.toUpperCase()+'</span>';
     var fatFechada=st==='parcelada'||st==='parcial'; if(!paga&&!fatFechada&&fLiq>0) html+='<div style="display:flex;gap:4px"><button class="btn-pay" style="font-size:10px;padding:2px 6px" data-cid="'+c.id+'" data-fmes="'+mes+'" onclick="abrirModalFatura(this)">Pagar</button><button class="btn-sm" style="font-size:10px;padding:2px 6px" data-cid="'+c.id+'" data-fmes="'+mes+'" onclick="abrirAdianto(this)">Adiantar</button></div>'; if(!paga&&fatFechada) html+='<span style="font-size:10px;color:var(--muted)">Fatura fechada</span>';
+    if(ultimaAcaoFatura&&ultimaAcaoFatura.cid===c.id&&ultimaAcaoFatura.mes===mes) html+='<button class="btn-del" style="font-size:10px;padding:2px 6px" onclick="event.stopPropagation();reverterUltimaFatura('+c.id+')"><i class="ti ti-arrow-back-up"></i> Desfazer</button>';
     html+='</div></div>';
     return html;
   }).join('');
