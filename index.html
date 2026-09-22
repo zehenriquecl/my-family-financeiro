@@ -207,7 +207,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
     <div class="login-title">Acesse sua conta</div>
     <div><label class="lbl">Usuario</label><input class="inp" id="l-user" placeholder="usuario" autocomplete="username"></div>
     <div><label class="lbl">Senha</label><input class="inp" id="l-pass" type="password" placeholder="..." autocomplete="current-password"></div>
-    <button class="btn-primary" onclick="doLogin()">Entrar</button>
+    <button class="btn-primary" id="l-btn" onclick="doLogin()">Entrar</button>
     <div id="login-err">Usuario ou senha incorretos.</div>
     <div style="font-size:11px;color:var(--muted);text-align:center">My Family Financeiro</div>
   </div>
@@ -744,7 +744,9 @@ setInterval(function(){
   if(de) de.textContent=n.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
 },1000);
 // ===== LOGIN =====
+var usersReady=false;
 function doLogin(){
+  if(!usersReady) return; // botao fica desabilitado ate os usuarios carregarem, isso e so uma trava extra
   var u=el('l-user').value.trim().toLowerCase();
   var p=el('l-pass').value;
   if(USERS[u]&&USERS[u].senha===p){
@@ -1792,9 +1794,15 @@ window.addEventListener('DOMContentLoaded',function(){
     ov.addEventListener('touchstart',function(e){ e.preventDefault(); closeSidebar(); },{passive:false});
     ov.addEventListener('click',function(){ closeSidebar(); });
   }
-  // Carrega usuários do Sheets antes de exibir o login
-  showLoading('Iniciando...');
-  loadUsers(function(){ hideLoading(); });
+  // Carrega usuarios do Sheets em segundo plano — a tela de login ja aparece
+  // pronta pra digitar, so o botao "Entrar" fica desabilitado ate isso terminar
+  // (evita bloquear a pagina inteira atras de uma chamada que pode demorar).
+  var lbtn=el('l-btn');
+  if(lbtn){ lbtn.disabled=true; lbtn.textContent='Carregando...'; }
+  loadUsers(function(){
+    usersReady=true;
+    if(lbtn){ lbtn.disabled=false; lbtn.textContent='Entrar'; }
+  });
 });
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='hidden'&&CU){ clearTimeout(_syncTimer); syncToSheets(); }
