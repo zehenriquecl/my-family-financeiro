@@ -447,10 +447,22 @@ window.addEventListener('beforeunload',function(){
   }catch(e){}
 });
 
+// O endpoint do Apps Script falha de forma intermitente (instabilidade do lado do
+// Google, nao tem como eliminar) — antes de desistir, tenta de novo algumas vezes.
+function fetchComRetry(url,options,tentativas,delayMs){
+  tentativas=tentativas||3; delayMs=delayMs||1200;
+  return fetch(url,options).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).catch(function(err){
+    if(tentativas<=1) throw err;
+    return new Promise(function(resolve){ setTimeout(resolve,delayMs); })
+      .then(function(){ return fetchComRetry(url,options,tentativas-1,delayMs); });
+  });
+}
 function loadUsers(callback){
   if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){ callback(); return; }
-  fetch(SCRIPT_URL+'?action=getUsers')
-    .then(function(r){return r.json();})
+  fetchComRetry(SCRIPT_URL+'?action=getUsers')
     .then(function(res){
       if(res.users){ USERS=res.users; }
       else { saveUsersToSheets(); } // primeiro acesso: salva os defaults
@@ -471,8 +483,7 @@ function loadFromSheets(user,callback){
     callback(); return;
   }
   showLoading('Carregando dados...');
-  fetch(SCRIPT_URL+'?action=getAll&user='+encodeURIComponent(user))
-    .then(function(r){return r.json();})
+  fetchComRetry(SCRIPT_URL+'?action=getAll&user='+encodeURIComponent(user))
     .then(function(res){
       hideLoading();
       DB[user]=res.db||emptyDB();
