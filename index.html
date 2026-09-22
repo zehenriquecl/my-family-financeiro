@@ -419,21 +419,33 @@ function hideLoading(){
   var o=el('loading-overlay'); if(o) o.classList.remove('show');
 }
 
+var _syncPendente=false;
 function syncToSheets(){
   if(!CU) return;
   if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
   if(!SYNC_OK){ console.warn('Sync bloqueado: dados ainda nao confirmados como carregados da planilha.'); return; }
+  var user=CU; // captura o usuario AGORA — nao ler CU de novo dentro do setTimeout, pois pode mudar (ex: logout) antes dele disparar
+  _syncPendente=true;
   clearTimeout(_syncTimer);
-  _syncTimer=setTimeout(function(){
-    fetch(SCRIPT_URL,{
-      method:'POST',
-      body:JSON.stringify({action:'saveAll',user:CU,db:DB[CU]})
-    })
-    .then(function(r){return r.json();})
-    .then(function(res){ if(!res.ok) console.warn('Sheets sync warning:',res); })
-    .catch(function(e){ console.error('Sheets sync error:',e); });
-  },800);
+  _syncTimer=setTimeout(function(){ enviarParaSheets(user,DB[user]); },800);
 }
+function enviarParaSheets(user,db){
+  _syncPendente=false;
+  fetch(SCRIPT_URL,{
+    method:'POST',
+    body:JSON.stringify({action:'saveAll',user:user,db:db})
+  })
+  .then(function(r){return r.json();})
+  .then(function(res){ if(!res.ok) console.warn('Sheets sync warning:',res); })
+  .catch(function(e){ console.error('Sheets sync error:',e); });
+}
+window.addEventListener('beforeunload',function(){
+  if(!_syncPendente||!CU||!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
+  clearTimeout(_syncTimer); _syncPendente=false;
+  try{
+    navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',user:CU,db:DB[CU]})],{type:'text/plain;charset=UTF-8'}));
+  }catch(e){}
+});
 
 function loadUsers(callback){
   if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){ callback(); return; }
@@ -753,7 +765,7 @@ function doLogin(){
   } else { el('login-err').style.display='block'; }
 }
 function doLogout(){
-  if(CU){ clearTimeout(_syncTimer); syncToSheets(); }
+  if(CU&&_syncPendente&&SYNC_OK){ clearTimeout(_syncTimer); enviarParaSheets(CU,DB[CU]); }
   CU=null; document.body.classList.remove('logado');
   el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
