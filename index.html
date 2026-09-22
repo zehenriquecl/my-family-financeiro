@@ -952,6 +952,8 @@ function rDash(){
   var previsto=rm.reduce(function(a,r){ return a+r.valor; },0);
   var dm=despesasDoMes(mes,true);
   var tDesp=dm.reduce(function(a,x){ return a+valorDespMes(x); },0);
+  var tPagoDesp=dm.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
+  var faltaReceber=previsto-recebido; var faltaPagar=tDesp-tPagoDesp;
   var tFat=totFat(mes); var sal=saldoTotal(); var proj=previsto-tDesp-tFat;
   var lbl=el('dash-mes-lbl'); if(lbl) lbl.textContent=mn(mes)+' — visao do mes';
   el('v-rec').textContent=fmt(recebido); el('v-pend').textContent=fmt(previsto-recebido);
@@ -961,7 +963,7 @@ function rDash(){
   el('p-pend').style.width=Math.min(100,(previsto-recebido)/mx*100)+'%';
   el('p-desp').style.width=Math.min(100,tDesp/mx*100)+'%';
   el('p-fat').style.width=Math.min(100,tFat/mx*100)+'%';
-  el('dash-stats').innerHTML=sc('Saldo em contas',fmt(sal),sal>=0?'g':'r')+sc('Recebido',fmt(recebido),'g')+sc('Previsto',fmt(previsto),'b')+sc('Projecao',fmt(proj),proj>=0?'g':'r')+sc('Faturas (cartao)',fmt(tFat),'p')+sc('Despesas (conta)',fmt(tDesp),'r');
+  el('dash-stats').innerHTML=sc('Saldo em contas',fmt(sal),sal>=0?'g':'r')+sc('Recebido',fmt(recebido),'g')+sc('Falta receber',fmt(faltaReceber),faltaReceber>0?'a':'g')+sc('Previsto',fmt(previsto),'b')+sc('Projecao',fmt(proj),proj>=0?'g':'r')+sc('Faturas (cartao)',fmt(tFat),'p')+sc('Despesas (conta)',fmt(tDesp),'r')+sc('Falta pagar',fmt(faltaPagar),faltaPagar>0?'a':'g');
   var prox=[];
   rm.filter(function(r){ return !(r.pagamentos[mes]&&r.pagamentos[mes].pago); }).forEach(function(r){ prox.push({n:r.desc,t:'Receita',dia:r.diaVenc,v:r.valor,c:'g',st:'Pendente'}); });
   d.cartoes.forEach(function(c){ var f=getFat(c.id,mes); if(!f) return; var st=statusFat(c,mes); if(st==='paga') return; var dr=c.venc-hoje.getDate(); prox.push({n:'Fatura '+c.nome,t:'Cartao',dia:c.venc,v:f,c:dr<=3?'r':'p',st:dr<0?'Vencida':dr===0?'Hoje':''+dr+'d'}); });
