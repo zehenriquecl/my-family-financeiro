@@ -965,7 +965,11 @@ function rDash(){
   var dm=despesasDoMes(mes,true);
   var tDesp=dm.reduce(function(a,x){ return a+valorDespMes(x); },0);
   var tPagoDesp=dm.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
-  var faltaReceber=previsto-recebido; var faltaPagar=tDesp-tPagoDesp;
+  var tFatFalta=d.cartoes.reduce(function(a,c){
+    if(statusFat(c,mes)==='paga') return a;
+    return a+Math.max(0,getFatBruta(c.id,mes)-getAdiantado(c.id,mes));
+  },0);
+  var faltaReceber=previsto-recebido; var faltaPagar=(tDesp-tPagoDesp)+tFatFalta;
   var tFat=totFat(mes); var sal=saldoTotal(); var proj=previsto-tDesp-tFat;
   var lbl=el('dash-mes-lbl'); if(lbl) lbl.textContent=mn(mes)+' — visao do mes';
   el('v-rec').textContent=fmt(recebido); el('v-pend').textContent=fmt(previsto-recebido);
