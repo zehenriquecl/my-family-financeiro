@@ -527,6 +527,9 @@ function fmt(v){ return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFracti
 function mn(m){ var p=m.split('-'); return ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(p[1])-1]+' '+p[0]; }
 function nid(){ return ++D().nextId; }
 function mesPosterior(mes,n){ var p=mes.split('-'); var d=new Date(parseInt(p[0]),parseInt(p[1])-1+n,1); return d.getFullYear()+'-'+pad2(d.getMonth()+1); }
+// Mes (nome) da fatura que vence no mes `mes`: nos cartoes nomeados pelo fechamento com vencimento
+// no mes seguinte, a fatura que vence agora e a do mes anterior
+function mesFatVenc(c,mes){ return (c.mesRef==='fech'&&c.venc<c.fech)?mesAnterior(mes,1):mes; }
 function mesAnterior(mes,n){ var p=mes.split('-'); var d=new Date(parseInt(p[0]),parseInt(p[1])-1-n,1); return d.getFullYear()+'-'+pad2(d.getMonth()+1); }
 function toast(msg,cls){ var t=el('toast'); if(!t) return; t.textContent=msg; t.className='toast show '+(cls||'g'); setTimeout(function(){ t.className='toast'; },3200); }
 function openForm(id){ var e=el(id); if(e) e.classList.add('open'); }
@@ -878,6 +881,7 @@ function rHoje(){
   while(mIter<mes){
     var mCur=mIter;
     d.cartoes.forEach(function(c){
+      if(mesFatVenc(c,mes)===mCur&&mCur!==mes) return;
       var f=getFat(c.id,mCur); if(!f) return;
       var st=statusFat(c,mCur); if(st==='paga') return;
       pastItems.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' — '+mn(mCur),sub:'Nao paga',val:f,cat:'fatura',cid:c.id,fmes:mCur});
@@ -895,12 +899,12 @@ function rHoje(){
     mIter=proxMes(mIter);
   }
   d.cartoes.forEach(function(c){
-    var f=getFat(c.id,mes); if(!f) return;
-    var st=statusFat(c,mes); if(st==='paga') return;
+    var fm=mesFatVenc(c,mes); var f=getFat(c.id,fm); if(!f) return;
+    var st=statusFat(c,fm); if(st==='paga') return;
     var dias=c.venc-diaH;
-    if(dias<0)   items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' VENCIDA',sub:'Venceu dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:mes});
-    else if(dias===0) items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence HOJE',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:mes});
-    else if(dias<=3)  items.push({tipo:'atencao',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence em '+dias+'d',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:mes});
+    if(dias<0)   items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' VENCIDA',sub:'Venceu dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
+    else if(dias===0) items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence HOJE',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
+    else if(dias<=3)  items.push({tipo:'atencao',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence em '+dias+'d',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
   });
   despesasDoMes(mes,true).forEach(function(x){
     var st=statusDespMes(x,mes); if(st==='pago') return;
@@ -961,7 +965,7 @@ function rCal(){
       if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; vExib=x.valor/np; }
       evs.push('<div class="cal-ev n">'+x.desc+' '+fmt(vExib)+'</div>');
     });
-    d.cartoes.forEach(function(c){ if(c.venc===dia){ var f=getFat(c.id,mesStr); if(f>0) evs.push('<div class="cal-ev p">Fat.'+c.nome+' '+fmt(f)+'</div>'); } });
+    d.cartoes.forEach(function(c){ if(c.venc===dia){ var f=getFat(c.id,mesFatVenc(c,mesStr)); if(f>0) evs.push('<div class="cal-ev p">Fat.'+c.nome+' '+fmt(f)+'</div>'); } });
     html+='<div class="cal-day'+(isH?' hoje-d':'')+'"><div class="cal-num">'+dia+'</div>'+evs.join('')+'</div>';
   }
   var tot=ini+ul.getDate(); var rest=tot%7===0?0:7-(tot%7);
@@ -996,7 +1000,7 @@ function rDash(){
   el('dash-stats').innerHTML=sc('Saldo em contas',fmt(sal),sal>=0?'g':'r')+sc('Recebido',fmt(recebido),'g')+sc('Falta receber',fmt(faltaReceber),faltaReceber>0?'a':'g')+sc('Previsto',fmt(previsto),'b')+sc('Projecao',fmt(proj),proj>=0?'g':'r')+sc('Faturas (cartao)',fmt(tFat),'p')+sc('Despesas (conta)',fmt(tDesp),'r')+sc('Falta pagar',fmt(faltaPagar),faltaPagar>0?'a':'g');
   var prox=[];
   rm.filter(function(r){ return !(r.pagamentos[mes]&&r.pagamentos[mes].pago); }).forEach(function(r){ prox.push({n:r.desc,t:'Receita',dia:r.diaVenc,v:r.valor,c:'g',st:'Pendente'}); });
-  d.cartoes.forEach(function(c){ var f=getFat(c.id,mes); if(!f) return; var st=statusFat(c,mes); if(st==='paga') return; var dr=c.venc-hoje.getDate(); prox.push({n:'Fatura '+c.nome,t:'Cartao',dia:c.venc,v:f,c:dr<=3?'r':'p',st:dr<0?'Vencida':dr===0?'Hoje':''+dr+'d'}); });
+  d.cartoes.forEach(function(c){ var fm=mesFatVenc(c,mes); var f=getFat(c.id,fm); if(!f) return; var st=statusFat(c,fm); if(st==='paga') return; var dr=c.venc-hoje.getDate(); prox.push({n:'Fatura '+c.nome,t:'Cartao',dia:c.venc,v:f,c:dr<=3?'r':'p',st:dr<0?'Vencida':dr===0?'Hoje':''+dr+'d'}); });
   dm.forEach(function(x){ var st=statusDespMes(x,mes); prox.push({n:x.desc,t:x.cat,dia:x.diaVenc,v:valorDespMes(x),c:st==='atrasado'?'r':'a',st:st==='atrasado'?'Atrasada':'Previsto'}); });
   prox.sort(function(a,b){ return a.dia-b.dia; });
   el('prox-tbody').innerHTML=prox.slice(0,12).map(function(p){ return '<tr><td>'+p.n+'</td><td><span class="badge '+p.c+'">'+p.t+'</span></td><td style="color:var(--muted);font-weight:700">dia '+p.dia+'</td><td style="font-weight:700">'+fmt(p.v)+'</td><td><span class="badge '+p.c+'">'+p.st+'</span></td></tr>'; }).join('');
