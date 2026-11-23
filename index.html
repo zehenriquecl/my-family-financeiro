@@ -158,6 +158,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
 #mob-topbar-title{font-size:13px;font-weight:700;flex:1}
 #mob-topbar-saldo{font-size:13px;font-weight:800;color:var(--green)}
 #mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:499;-webkit-tap-highlight-color:transparent}
+.sync-status{font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px;color:var(--muted)}.sync-status.g{color:var(--green)}.sync-status.a{color:var(--amber)}.sync-status.r{color:var(--red)}
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--card2);border:0.5px solid var(--border);border-radius:10px;padding:.75rem 1.1rem;font-size:13px;font-weight:500;z-index:9999;opacity:0;transform:translateY(10px);transition:all .25s;pointer-events:none;max-width:320px}
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.g{border-color:var(--green);color:var(--green)}.toast.r{border-color:var(--red);color:var(--red)}.toast.a{border-color:var(--amber);color:var(--amber)}
@@ -257,6 +258,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
         <div class="sb-brand">My Family</div>
         <div class="sb-user" id="sb-nome">-</div>
         <div class="sb-saldo" id="sb-saldo">R$ 0,00</div>
+        <div class="sync-status" id="sync-status"></div>
       </div>
     </div>
     <div class="nav-section">Principal</div>
@@ -400,11 +402,12 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
 // ===== GOOGLE SHEETS CONFIG =====
 // Após publicar o Apps Script, cole a URL aqui:
 var SCRIPT_URL = 'https://mff-api.refaestudio.cloud/';
-var _syncTimer = null;
-// So fica true depois que os dados reais forem confirmados carregados da planilha (ou modo local sem SCRIPT_URL).
-// Enquanto for false, syncToSheets() nao envia nada — evita sobrescrever a planilha real com dados de fallback/demo
-// quando o carregamento falha (ex: sem internet, Apps Script fora do ar).
+// So fica true depois que os dados reais forem confirmados carregados do servidor.
+// Enquanto for false, nada e enviado — evita sobrescrever os dados reais com um banco
+// vazio/de fallback quando o carregamento falha (ex: sem internet, servidor fora do ar).
 var SYNC_OK = false;
+var TOKEN = null;      // sessao devolvida pelo login (o servidor nao aceita nada sem ela)
+var DB_REV = 0;        // revisao do servidor em que os dados em memoria se baseiam
 
 function emptyDB(){
   return {contas:[],receitas:[],despesas:[],cartoes:[],lancamentos:[],ajustesFatura:[],parcelamentosFatura:[],adiantamentosFatura:[],extrato:[],nextId:0};
@@ -419,97 +422,152 @@ function hideLoading(){
   var o=el('loading-overlay'); if(o) o.classList.remove('show');
 }
 
-var _syncPendente=false;
-function syncToSheets(){
-  if(!CU) return;
-  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
-  if(!SYNC_OK){ console.warn('Sync bloqueado: dados ainda nao confirmados como carregados da planilha.'); return; }
-  var user=CU; // captura o usuario AGORA — nao ler CU de novo dentro do setTimeout, pois pode mudar (ex: logout) antes dele disparar
-  _syncPendente=true;
-  clearTimeout(_syncTimer);
-  _syncTimer=setTimeout(function(){ enviarParaSheets(user,DB[user]); },800);
-}
-function enviarParaSheets(user,db){
-  _syncPendente=false;
-  fetch(SCRIPT_URL,{
-    method:'POST',
-    body:JSON.stringify({action:'saveAll',user:user,db:db})
-  })
-  .then(function(r){return r.json();})
-  .then(function(res){ if(!res.ok) console.warn('Sheets sync warning:',res); })
-  .catch(function(e){ console.error('Sheets sync error:',e); });
-}
-window.addEventListener('beforeunload',function(){
-  if(!_syncPendente||!CU||!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
-  clearTimeout(_syncTimer); _syncPendente=false;
-  try{
-    navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',user:CU,db:DB[CU]})],{type:'text/plain;charset=UTF-8'}));
-  }catch(e){}
-});
-
-// O endpoint do Apps Script falha de forma intermitente (instabilidade do lado do
-// Google, nao tem como eliminar) — antes de desistir, tenta de novo algumas vezes.
-function fetchComRetry(url,options,tentativas,delayMs){
-  tentativas=tentativas||3; delayMs=delayMs||1200;
-  return fetch(url,options).then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  }).catch(function(err){
-    if(tentativas<=1) throw err;
-    return new Promise(function(resolve){ setTimeout(resolve,delayMs); })
-      .then(function(){ return fetchComRetry(url,options,tentativas-1,delayMs); });
+// Chamada a API: sempre POST com JSON em text/plain (evita preflight CORS); o token vai no
+// corpo, nunca na URL. Rejeita com {status, body} quando o servidor responde erro.
+function api(action,payload){
+  var body=Object.assign({action:action,token:TOKEN},payload||{});
+  return fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify(body)}).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(j){
+      if(!r.ok||j.error){ var e=new Error(j.error||('HTTP '+r.status)); e.status=r.status; e.body=j; throw e; }
+      return j;
+    });
   });
 }
-function loadUsers(callback){
-  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){ callback(); return; }
-  fetchComRetry(SCRIPT_URL+'?action=getUsers')
-    .then(function(res){
-      if(res.users){ USERS=res.users; }
-      else { saveUsersToSheets(); } // primeiro acesso: salva os defaults
-      callback();
-    })
-    .catch(function(){ callback(); });
-}
-function saveUsersToSheets(){
-  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT') return;
-  fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'saveUsers',users:USERS})})
-    .catch(function(e){ console.error('saveUsers error:',e); });
+// Leituras podem ser repetidas com seguranca quando a rede falha; erros de permissao nao.
+function apiComRetry(action,payload,tentativas){
+  tentativas=tentativas||3;
+  return api(action,payload).catch(function(err){
+    if(tentativas<=1||(err.status&&err.status<500)) throw err;
+    return new Promise(function(res){ setTimeout(res,1200); }).then(function(){ return apiComRetry(action,payload,tentativas-1); });
+  });
 }
 
-function loadFromSheets(user,callback){
-  if(!SCRIPT_URL||SCRIPT_URL==='COLE_AQUI_A_URL_DO_APPS_SCRIPT'){
-    if(!DB[user]) DB[user]=emptyDB();
-    SYNC_OK=true;
-    callback(); return;
+// ===== SALVAMENTO =====
+// Regras (cada uma corrige uma causa real de perda de dados):
+// 1) So envia quando HOUVE alteracao (_sujo). Antes, trocar de aba enviava o banco inteiro
+//    mesmo sem mudanca — uma aba velha aberta desde ontem apagava o que foi feito no celular.
+// 2) Envia a revisao em que os dados se baseiam (DB_REV). Se outro aparelho/aba gravou antes,
+//    o servidor responde 409 e o app recarrega a versao mais nova em vez de sobrescrever.
+// 3) Um envio por vez; alteracoes feitas durante o envio saem logo depois, com a revisao nova.
+// 4) Falha de rede nao some calada: avisa e tenta de novo ate conseguir.
+var _syncTimer=null, _sujo=false, _enviando=false, _permitirReducao=false, _retryTimer=null;
+function syncToSheets(){
+  if(!CU||!SYNC_OK) return;
+  _sujo=true; marcarStatusSync('pendente');
+  clearTimeout(_syncTimer);
+  _syncTimer=setTimeout(enviarAgora,800);
+}
+function enviarAgora(){
+  clearTimeout(_syncTimer);
+  if(!CU||!SYNC_OK||!_sujo||_enviando) return;
+  var user=CU; var payload={db:DB[user],baseRev:DB_REV};
+  if(_permitirReducao) payload.permitirReducao=true;
+  _sujo=false; _enviando=true; marcarStatusSync('salvando');
+  api('saveAll',payload).then(function(res){
+    _enviando=false; _permitirReducao=false;
+    if(CU!==user) return;
+    DB_REV=res.rev; marcarStatusSync(_sujo?'pendente':'ok');
+    if(_sujo) enviarAgora();
+  }).catch(function(err){
+    _enviando=false;
+    if(CU!==user) return;
+    if(err.status===409){ conflitoDeVersao(); return; }
+    if(err.status===401){ _sujo=true; sessaoExpirada(); return; }
+    if(err.status===400||err.status===422){ // servidor recusou de proposito (dados invalidos/apagaria demais)
+      marcarStatusSync('erro');
+      toast('Alteracao NAO salva: '+err.message,'r');
+      _sujo=false; recarregarDoServidor(); return;
+    }
+    _sujo=true; marcarStatusSync('erro');
+    toast('Sem conexao — alteracao ainda nao salva. Tentando de novo...','r');
+    clearTimeout(_retryTimer); _retryTimer=setTimeout(enviarAgora,5000);
+  });
+}
+function conflitoDeVersao(){
+  _sujo=false; marcarStatusSync('erro');
+  alert('Seus dados foram alterados em outro aparelho ou aba depois que esta tela foi aberta.\n\nPara nao apagar o que foi feito la, vou carregar a versao mais recente agora.\nConfira se a sua ultima alteracao aparece; se nao aparecer, faca-a de novo.');
+  recarregarDoServidor();
+}
+function sessaoExpirada(){
+  marcarStatusSync('erro');
+  alert('Sua sessao expirou. Entre de novo — a ultima alteracao feita nesta tela pode nao ter sido salva, confira depois de entrar.');
+  _sujo=false; doLogout();
+}
+// Busca a versao atual do servidor e redesenha tudo (sem enviar nada).
+function recarregarDoServidor(){
+  var user=CU; if(!user) return Promise.resolve();
+  return apiComRetry('getAll').then(function(res){
+    if(CU!==user) return;
+    DB[user]=normalizarDB(res.db); DB_REV=res.rev||0; _sujo=false; SYNC_OK=true;
+    marcarStatusSync('ok'); initSelects(); renderTudo();
+  }).catch(function(e){ console.error('recarregar:',e); });
+}
+// Ao voltar pra aba/app: se outro aparelho salvou nesse meio tempo e aqui nao ha nada pendente,
+// atualiza sozinho — assim a tela nunca fica trabalhando em cima de dados velhos.
+function checarVersaoServidor(){
+  if(!CU||!SYNC_OK||_sujo||_enviando) return;
+  api('getRev').then(function(res){
+    if(CU&&!_sujo&&!_enviando&&res.rev!==DB_REV){ toast('Dados atualizados com alteracoes de outro aparelho','a'); recarregarDoServidor(); }
+  }).catch(function(e){ if(e.status===401) sessaoExpirada(); });
+}
+function marcarStatusSync(st){
+  var b=el('sync-status'); if(!b) return;
+  var m={ok:['Salvo','g','ti-cloud-check'],pendente:['Salvando...','a','ti-cloud-upload'],salvando:['Salvando...','a','ti-cloud-upload'],erro:['Nao salvo','r','ti-cloud-off']}[st]||['','',''];
+  b.className='sync-status '+m[1]; b.innerHTML='<i class="ti '+m[2]+'"></i> '+m[0];
+}
+window.addEventListener('beforeunload',function(e){
+  if(!CU||!SYNC_OK||(!_sujo&&!_enviando)) return;
+  if(_sujo&&!_enviando){
+    try{ navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',token:TOKEN,db:DB[CU],baseRev:DB_REV})],{type:'text/plain;charset=UTF-8'})); _sujo=false; return; }catch(err){}
   }
+  e.preventDefault(); e.returnValue='Ainda ha alteracoes sendo salvas.'; // pede confirmacao antes de fechar
+});
+
+// Garante que todas as listas existam (dados antigos ou de backup podem nao ter alguma).
+function normalizarDB(db){
+  db=db||emptyDB();
+  ['contas','receitas','despesas','cartoes','lancamentos','ajustesFatura','parcelamentosFatura','adiantamentosFatura','extrato'].forEach(function(k){ if(!Array.isArray(db[k])) db[k]=[]; });
+  if(typeof db.nextId!=='number') db.nextId=0;
+  return db;
+}
+function loadFromSheets(user,callback){
   showLoading('Carregando dados...');
-  fetchComRetry(SCRIPT_URL+'?action=getAll&user='+encodeURIComponent(user))
+  apiComRetry('getAll')
     .then(function(res){
       hideLoading();
-      DB[user]=res.db||emptyDB();
+      DB[user]=normalizarDB(res.db); DB_REV=res.rev||0; _sujo=false;
       SYNC_OK=true;
       callback();
     })
     .catch(function(e){
       hideLoading();
-      console.error('Sheets load error:',e);
+      console.error('Load error:',e);
       SYNC_OK=false;
       DB[user]=emptyDB();
-      toast('Falha ao carregar a planilha — modo seguro (sem salvar). Recarregue a pagina antes de mexer em qualquer coisa.','r');
+      toast('Falha ao carregar seus dados — modo seguro (nada sera salvo). Recarregue a pagina antes de mexer em qualquer coisa.','r');
       callback();
     });
 }
 // ================================
 
-var USERS = {
-  jose:    { senha:'1234', nome:'Jose Henrique', admin:true },
-  juliana: { senha:'5678', nome:'Juliana' }
-};
+var USERS = {}; // so o proprio usuario logado (nome/admin); a lista completa so o admin busca, sem senhas
 
 var CATS = ['Alimentacao','Assinatura','Cuidados Pessoais','Dizimos/Ofertas','Educacao','Empregada','Juros','Lazer','Moradia','Outros','Presentes','Previdencia','Saude','Seguros','Transporte','Vestuario','Viagens'];
 
 var CU=null, editCtx=null, fatCtx=null, ultimaAcaoFatura=null;
 var hoje=new Date();
+// Data de hoje no fuso LOCAL (toISOString usa UTC: depois das 21h no Brasil gravava o dia seguinte)
+function hojeISO(){ var n=new Date(); return n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-'+pad2(n.getDate()); }
+// O app pode ficar aberto de um dia pro outro: atualiza "hoje"/mes atual e redesenha quando a data vira.
+function atualizarDataHoje(){
+  var n=new Date();
+  if(n.getFullYear()===hoje.getFullYear()&&n.getMonth()===hoje.getMonth()&&n.getDate()===hoje.getDate()) return;
+  var novoMA=n.getFullYear()+'-'+pad2(n.getMonth()+1);
+  if(filtroRecMes===MA) filtroRecMes=novoMA;
+  if(filtroDespMes===MA) filtroDespMes=novoMA;
+  hoje=n; MA=novoMA;
+  if(CU&&DB[CU]) renderTudo();
+}
 var MA=hoje.getFullYear()+'-'+pad2(hoje.getMonth()+1);
 var filtroRecMes=MA, filtroDespMes=MA;
 var mundoRec='todos', mundoDesp='todos';
@@ -522,6 +580,12 @@ var DB = {};
 // ===== HELPERS =====
 function D(){ return DB[CU]; }
 function el(id){ return document.getElementById(id); }
+// Escapa texto do usuario antes de por em innerHTML (evita que um nome/descricao vire codigo na tela de outra pessoa)
+function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function renderTudo(){
+  renderAll();
+  [['contas',rContas],['receitas',rRec],['despesas',rDesp],['cartoes',function(){ rCart(); rLanc(); }],['calendario',rCal],['previsao',rPrev],['historico',rHist],['relatorio',rRel]].forEach(function(p){ var sec=el('sec-'+p[0]); if(sec&&sec.classList.contains('active')) p[1](); });
+}
 function pad2(n){ return String(n).padStart(2,'0'); }
 function fmt(v){ return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function mn(m){ var p=m.split('-'); return ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(p[1])-1]+' '+p[0]; }
@@ -563,7 +627,7 @@ function setMasked(id,val){
 function addEx(tipo,desc,valor,contaId){
   var ct=D().contas.find(function(c){ return c.id===contaId; });
   var id=nid();
-  D().extrato.push({id:id,data:hoje.toLocaleDateString('pt-BR'),desc:desc,contaId:contaId,contaNome:ct?ct.banco:'-',tipo:tipo,valor:valor});
+  D().extrato.push({id:id,data:new Date().toLocaleDateString('pt-BR'),desc:desc,contaId:contaId,contaNome:ct?ct.banco:'-',tipo:tipo,valor:valor});
   return id;
 }
 function removeEx(exId){ if(!exId) return; var d=D(); d.extrato=d.extrato.filter(function(e){ return e.id!==exId; }); }
@@ -596,8 +660,9 @@ function statusDespMes(x,mes){
 function receitasDoMes(mes){
   var lista=[];
   D().receitas.forEach(function(r){
+    if(r.fimMes&&mes>r.fimMes) return;
     if(r.recor==='Unico'){ if((r.mes||MA)===mes) lista.push(r); return; }
-    if(r.recor==='Anual'){ if(mes.split('-')[1]===(r.inicioMes||MA).split('-')[1]) lista.push(r); return; }
+    if(r.recor==='Anual'){ var ia=r.inicioMes||r.mes||MA; if(mes>=ia&&mes.split('-')[1]===ia.split('-')[1]) lista.push(r); return; }
     var ini=r.inicioMes||r.mes||MA; if(mes>=ini) lista.push(r);
   });
   return lista;
@@ -607,13 +672,14 @@ function despesasDoMes(mes,soContaCorrente){
   D().despesas.forEach(function(x){
     if(soContaCorrente&&x.via==='cartao') return;
     if(x.pulados&&x.pulados.indexOf(mes)>=0) return;
+    if(x.fimMes&&mes>x.fimMes) return;
     if(x.recor==='Unico'){ var mc=x.inicioMes||x.mesCad||MA; if(mc===mes) lista.push(x); return; }
     if(x.recor==='Parcelado'){
       var np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.inicioMes||x.mesCad||MA).split('-');
       var diff=(parseInt(pc[0])-parseInt(po[0]))*12+(parseInt(pc[1])-parseInt(po[1]));
       if(diff>=0&&diff<np) lista.push(x); return;
     }
-    if(x.recor==='Anual'){ if(mes.split('-')[1]===(x.inicioMes||x.mesCad||MA).split('-')[1]) lista.push(x); return; }
+    if(x.recor==='Anual'){ var ia=x.inicioMes||x.mesCad||MA; if(mes>=ia&&mes.split('-')[1]===ia.split('-')[1]) lista.push(x); return; }
     var ini=x.inicioMes||x.mesCad||MA; if(mes>=ini) lista.push(x);
   });
   return lista;
@@ -639,6 +705,23 @@ function shiftFaturaCartao(cart,dia){
   if(cart.venc<cart.fech&&modoFat(cart)!=='fech') s++;
   return s;
 }
+// Ocorrencia de uma despesa (via cartao) dentro da fatura do mes `mes`, ou null se nao cai nela.
+// Devolve {valor, parc, np}. Respeita: mes de inicio, parcelas, anual, "excluir so este mes"
+// (x.pulados, gravado no mes da DESPESA) e recorrencia encerrada (x.fimMes).
+function ocorrDespCartao(x,cart,mes){
+  var s=shiftFaturaCartao(cart,x.diaVenc||1);
+  var ini=x.inicioMes||x.mesCad||MA;
+  var iniFat=mesPosterior(ini,s);               // fatura em que cai a 1a ocorrencia
+  if(mes<iniFat) return null;
+  var md=(parseInt(mes.slice(0,4))-parseInt(iniFat.slice(0,4)))*12+(parseInt(mes.slice(5,7))-parseInt(iniFat.slice(5,7)));
+  var mesDesp=mesAnterior(mes,s);               // mes da despesa (como aparece na tela Despesas)
+  if(x.pulados&&x.pulados.indexOf(mesDesp)>=0) return null;
+  if(x.fimMes&&mesDesp>x.fimMes) return null;
+  if(x.recor==='Unico') return md===0?{valor:x.valor,parc:1,np:1}:null;
+  if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; return md<np?{valor:x.valor/np,parc:md+1,np:np}:null; }
+  if(x.recor==='Anual') return mes.slice(5,7)===iniFat.slice(5,7)?{valor:x.valor,parc:1,np:1}:null;
+  return {valor:x.valor,parc:1,np:1};
+}
 // ===== FATURA (com ajustes, parcelamentos e adiantamentos) =====
 function getFat(cid,mes){
   var d=D();
@@ -659,17 +742,7 @@ function getFat(cid,mes){
 
   // 2. Despesas recorrentes no cartão
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
-    var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
-    pfm+=shiftFaturaCartao(cart,dv); while(pfm>11){ pfm-=12; pfa++; }
-    if(y<pfa||(y===pfa&&m-1<pfm)) return;
-    if(x.recor==='Unico'){ if(m-1===pfm&&y===pfa) tot+=x.valor; return; }
-    if(x.recor==='Parcelado'){
-      var np=parseInt(x.parcelas)||1; var md=(y-pfa)*12+((m-1)-pfm);
-      if(md>=0&&md<np) tot+=x.valor/np; return;
-    }
-    if(x.recor==='Anual'){ if(m-1===pfm) tot+=x.valor; return; }
-    tot+=x.valor;
+    var oc=ocorrDespCartao(x,cart,mes); if(oc) tot+=oc.valor;
   });
 
   // 3. Saldo anterior (ajuste de fatura parcial jogado para este mês)
@@ -701,14 +774,7 @@ function getFatBruta(cid,mes){
     }
   });
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
-    var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
-    pfm+=shiftFaturaCartao(cart,dv); while(pfm>11){ pfm-=12; pfa++; }
-    if(y<pfa||(y===pfa&&m-1<pfm)) return;
-    if(x.recor==='Unico'){ if(m-1===pfm&&y===pfa) tot+=x.valor; return; }
-    if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; var md=(y-pfa)*12+((m-1)-pfm); if(md>=0&&md<np) tot+=x.valor/np; return; }
-    if(x.recor==='Anual'){ if(m-1===pfm) tot+=x.valor; return; }
-    tot+=x.valor;
+    var oc=ocorrDespCartao(x,cart,mes); if(oc) tot+=oc.valor;
   });
   (d.ajustesFatura||[]).filter(function(a){ return a.cartaoId===cid&&a.destinoMes===mes&&a.status!=='pago'; }).forEach(function(a){ tot+=a.valorFinal; });
   (d.parcelamentosFatura||[]).forEach(function(pf){
@@ -719,6 +785,35 @@ function getFatBruta(cid,mes){
 }
 function getAdiantado(cid,mes){
   return (D().adiantamentosFatura||[]).filter(function(a){ return a.cartaoId===cid&&a.mes===mes; }).reduce(function(a,x){ return a+x.valor; },0);
+}
+// Quanto saiu das contas pra pagar a fatura `mes` do cartao (total, parcial, entrada ou diferenca).
+// Pagamentos novos ficam ligados por id (cart.fatExIds); os antigos sao achados pelo texto que o app grava.
+function pagoFatura(cart,mes){
+  var ids=(cart.fatExIds&&cart.fatExIds[mes])||[];
+  var nome=cart.nome.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), rot=mn(mes).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  var re=new RegExp('^(Fatura|Entrada fatura) '+nome+'( parcial| diferenca)? \\('+rot+'\\)$');
+  return -D().extrato.filter(function(e){ return ids.indexOf(e.id)>=0||re.test(e.desc||''); }).reduce(function(a,e){ return a+e.valor; },0);
+}
+function ligarPagamentoFatura(cart,mes,exId){
+  if(!exId) return;
+  cart.fatExIds=cart.fatExIds||{}; (cart.fatExIds[mes]=cart.fatExIds[mes]||[]).push(exId);
+}
+// Fatura marcada como paga, mas com compra lancada/alterada depois: paga so a diferenca.
+function pagarDiferencaFatura(cid,mes){
+  var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return;
+  var dif=Math.round((getFat(cid,mes)-pagoFatura(cart,mes))*100)/100; if(dif<=0) return;
+  openModal('Pagar diferenca — '+cart.nome+' ('+mn(mes)+')',
+    '<p style="color:var(--muted);font-size:13px;margin-bottom:1rem">Fatura hoje: <strong style="color:var(--text)">'+fmt(getFat(cid,mes))+'</strong> | Ja pago: <strong style="color:var(--green)">'+fmt(pagoFatura(cart,mes))+'</strong></p>'
+    +'<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Valor (R$)</label><input type="text" inputmode="numeric" id="dfat-val" oninput="applyMask(this)" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div>'
+    +'<div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Conta</label><select id="dfat-conta" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+d.contas.map(function(c){ return '<option value="'+c.id+'">'+esc(c.banco)+'</option>'; }).join('')+'</select></div>',
+    function(){
+      var val=maskedVal('dfat-val'); if(!val) return false;
+      var contaId=parseInt(el('dfat-conta').value);
+      if(saldoConta(contaId)<val){ toast('Saldo insuficiente nessa conta','r'); return false; }
+      ligarPagamentoFatura(cart,mes,addEx('Fatura','Fatura '+cart.nome+' diferenca ('+mn(mes)+')',-val,contaId));
+      toast('Diferenca paga','g'); rCart();
+    });
+  setMasked('dfat-val',dif);
 }
 function statusFat(cart,mes){
   if(!cart.fatStatus) return 'aberta';
@@ -762,36 +857,48 @@ function creditoComprometido(cid,mesRef){
 // ===== CLOCK =====
 setInterval(function(){
   var n=new Date();
+  if(n.getDate()!==hoje.getDate()) atualizarDataHoje();
   var te=el('dt-time'); var de=el('dt-date');
   if(te) te.textContent=n.toLocaleTimeString('pt-BR');
   if(de) de.textContent=n.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
 },1000);
 // ===== LOGIN =====
-var usersReady=false;
 function doLogin(){
-  if(!usersReady) return; // botao fica desabilitado ate os usuarios carregarem, isso e so uma trava extra
   var u=el('l-user').value.trim().toLowerCase();
   var p=el('l-pass').value;
-  if(USERS[u]&&USERS[u].senha===p){
-    el('login-err').style.display='none';
+  var btn=el('l-btn'); if(btn&&btn.disabled) return;
+  el('login-err').style.display='none';
+  if(!u||!p){ el('login-err').textContent='Informe usuario e senha.'; el('login-err').style.display='block'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='Entrando...'; }
+  apiComRetry('login',{user:u,senha:p}).then(function(res){
+    TOKEN=res.token; USERS={}; USERS[res.user.login]=res.user; u=res.user.login;
     loadFromSheets(u,function(){
+      if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
       CU=u; filtroRecMes=MA; filtroDespMes=MA;
       document.body.classList.add('logado');
       el('login-screen').style.display='none';
       el('app').classList.add('visible');
       el('sb-nome').textContent=USERS[u].nome;
+      marcarStatusSync(SYNC_OK?'ok':'erro');
       var navAdmin=el('nav-admin');
       if(navAdmin) navAdmin.style.display=USERS[u].admin?'flex':'none';
       initSelects(); renderAll(); rHoje();
       nav('hoje',document.querySelector('.nav-item'));
       var tutKey='tutorial_visto_'+u;
-      if(!localStorage.getItem(tutKey)){localStorage.setItem(tutKey,'1');setTimeout(openTutorial,600);}
+      try{ if(!localStorage.getItem(tutKey)){localStorage.setItem(tutKey,'1');setTimeout(openTutorial,600);} }catch(e){}
     });
-  } else { el('login-err').style.display='block'; }
+  }).catch(function(err){
+    if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
+    el('login-err').textContent=err.status===401?'Usuario ou senha incorretos.':err.status===429?err.message:'Nao foi possivel conectar ao servidor. Tente de novo.';
+    el('login-err').style.display='block';
+  });
 }
 function doLogout(){
-  if(CU&&_syncPendente&&SYNC_OK){ clearTimeout(_syncTimer); enviarParaSheets(CU,DB[CU]); }
-  CU=null; document.body.classList.remove('logado');
+  if(CU&&SYNC_OK&&_sujo&&!_enviando){ try{ navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',token:TOKEN,db:DB[CU],baseRev:DB_REV})],{type:'text/plain;charset=UTF-8'})); }catch(e){} }
+  clearTimeout(_syncTimer); clearTimeout(_retryTimer);
+  if(CU) delete DB[CU];
+  CU=null; TOKEN=null; SYNC_OK=false; _sujo=false; DB_REV=0; USERS={};
+  document.body.classList.remove('logado');
   el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
 }
@@ -835,7 +942,7 @@ function initSelects(){
   var optCarts=d.cartoes.map(function(c){ return '<option value="'+c.id+'">'+c.nome+'</option>'; }).join('');
   var flc=el('fl-cart'); if(flc) flc.innerHTML=optCarts;
   var lfc=el('lfc'); if(lfc) lfc.innerHTML='<option value="">Todos</option>'+optCarts;
-  var hs=hoje.toISOString().split('T')[0];
+  var hs=hojeISO();
   ['fr-data','fd-data','fl-data'].forEach(function(id){ var s=el(id); if(s&&!s.value) s.value=hs; });
   var fm=el('fr-mes'); if(fm&&!fm.value) fm.value=MA;
   var fri=el('fr-inicio'); if(fri&&!fri.value) fri.value=MA;
@@ -1056,10 +1163,10 @@ function abrirModalRec(btn){
     if(!r.pagamentos[rmes]) r.pagamentos[rmes]={valorRec:0};
     var pag=r.pagamentos[rmes];
     pag.valorRec=(pag.valorRec||0)+val;
-    pag.dataRec=hoje.toISOString().split('T')[0];
+    pag.dataRec=hojeISO();
     if(pag.valorRec>=r.valor){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
     var ct=d.contas.find(function(c){ return c.id===cid; });
-    if(ct){ addEx('Receita',r.desc+' ('+mn(rmes)+')',val,cid); }
+    if(ct){ pag.exIds=(pag.exIds||[]).concat(addEx('Receita',r.desc+' ('+mn(rmes)+')',val,cid)); }
     toast(r.desc+' — '+fmt(val)+' recebido','g');
     rRec(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   };
@@ -1089,9 +1196,9 @@ function abrirModalDesp(btn){
     if(!x.pagamentos[dmes]) x.pagamentos[dmes]={valorPago:0};
     var pag=x.pagamentos[dmes];
     pag.valorPago=(pag.valorPago||0)+val;
-    pag.dataPag=hoje.toISOString().split('T')[0];
+    pag.dataPag=hojeISO();
     if(pag.valorPago>=valorMes){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
-    if(x.via==='conta') addEx('Despesa',x.desc+' ('+mn(dmes)+')',-val,x.qual);
+    if(x.via==='conta') pag.exIds=(pag.exIds||[]).concat(addEx('Despesa',x.desc+' ('+mn(dmes)+')',-val,x.qual));
     toast(x.desc+' — '+fmt(val)+' pago','g');
     rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   };
@@ -1236,7 +1343,7 @@ function confirmarFatura(){
       parcelas.push({mes:inp.getAttribute('data-mes'),numero:i+1,total:np,valor:maskedVal('fat-p-'+i),status:'pendente'});
     }
     var parcId=nid();
-    d.parcelamentosFatura.push({id:parcId,cartaoId:cart.id,origemMes:mes,valorFaturaOriginal:fatCtx.fBruta,valorEntrada:entrada,valorParcelado:fLiq-entrada,contaEntradaId:cid,dataEntrada:hoje.toISOString().split('T')[0],parcelas:parcelas});
+    d.parcelamentosFatura.push({id:parcId,cartaoId:cart.id,origemMes:mes,valorFaturaOriginal:fatCtx.fBruta,valorEntrada:entrada,valorParcelado:fLiq-entrada,contaEntradaId:cid,dataEntrada:hojeISO(),parcelas:parcelas});
     ultimaAcaoFatura={tipo:'parcelar',cid:cart.id,mes:mes,valor:entrada,fatStatusAntes:fatStatusAntes,exId:exId,parcId:parcId,quando:new Date()};
     toast('Fatura parcelada em '+np+'x','g');
 
@@ -1251,11 +1358,12 @@ function confirmarFatura(){
       exId=addEx('Adiantamento','Adiant. fatura '+cart.nome+' ('+mn(mes)+')',-adiant,cid);
     }
     var adiantId=nid();
-    d.adiantamentosFatura.push({id:adiantId,cartaoId:cart.id,mes:mes,valor:adiant,data:hoje.toISOString().split('T')[0],contaId:cid});
+    d.adiantamentosFatura.push({id:adiantId,cartaoId:cart.id,mes:mes,valor:adiant,data:hojeISO(),contaId:cid});
     ultimaAcaoFatura={tipo:'adiantar',cid:cart.id,mes:mes,valor:adiant,fatStatusAntes:fatStatusAntes,exId:exId,adiantId:adiantId,quando:new Date()};
     toast('Adiantamento de '+fmt(adiant)+' registrado','g');
   }
 
+  if(tipo!=='adiantar') ligarPagamentoFatura(cart,mes,exId);
   el('modal').classList.remove('open'); fatCtx=null;
   rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
@@ -1297,17 +1405,10 @@ function reverterUltimaFatura(cid){
 function marcarDespCartaoComoPatoNaFatura(cart,mes){
   var tocadas=[];
   D().despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cart.id; }).forEach(function(x){
-    var dv=x.diaVenc||1; var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-');
-    var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
-    pfm+=shiftFaturaCartao(cart,dv); while(pfm>11){ pfm-=12; pfa++; }
-    var fp=mes.split('-'); var fa=parseInt(fp[0]); var fm=parseInt(fp[1])-1;
-    if(fa<pfa||(fa===pfa&&fm<pfm)) return;
-    if(x.recor==='Unico'&&(fm!==pfm||fa!==pfa)) return;
-    if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; var md=(fa-pfa)*12+(fm-pfm); if(md<0||md>=np) return; }
-    if(x.recor==='Anual'&&fm!==pfm) return;
+    if(!ocorrDespCartao(x,cart,mes)) return;
     if(!x.pagamentos) x.pagamentos={};
     tocadas.push({despId:x.id,prevPag:x.pagamentos[mes]?JSON.parse(JSON.stringify(x.pagamentos[mes])):null});
-    x.pagamentos[mes]={pago:true,dataPag:hoje.toISOString().split('T')[0],viaFatura:true};
+    x.pagamentos[mes]={pago:true,dataPag:hojeISO(),viaFatura:true};
   });
   return tocadas;
 }
@@ -1386,11 +1487,12 @@ function rRec(){
         var btn='';
         if(!pag||!pag.pago) btn='<button class="btn-ok" data-rid="'+r.id+'" data-rmes="'+mes+'" onclick="abrirModalRec(this)">'+(pag&&pag.parcial?'Complementar':'Receber')+'</button>';
         var row='<tr>';
-        row+='<td>'+r.desc+'</td><td><span class="badge b">'+r.tipo+'</span></td><td style="color:var(--muted)">'+r.forma+'</td>';
+        row+='<td>'+esc(r.desc)+'</td><td><span class="badge b">'+esc(r.tipo)+'</span></td><td style="color:var(--muted)">'+r.forma+'</td>';
         row+='<td><span class="badge b">'+(ct?ct.banco:'-')+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
         row+='<td style="font-weight:700">'+fmt(r.valor)+'</td>';
         row+='<td style="font-weight:700;color:var(--green)">'+(pag&&(pag.valorRec||0)>0?fmt(pag.valorRec):'—')+'</td>';
         row+='<td>'+badgeRec(st)+'</td>';
+        if(pag&&(pag.pago||pag.parcial)) btn+='<button class="btn-ed" title="Estornar recebimento" onclick="estornarRec('+r.id+',\''+mes+'\')"><i class="ti ti-arrow-back-up"></i></button>';
         row+='<td><div class="btn-group">'+btn+'<button class="btn-ed" onclick="edRec('+r.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delRec('+r.id+')"><i class="ti ti-trash"></i></button></div></td></tr>';
         return row;
       }).join('');
@@ -1426,9 +1528,10 @@ function rDesp(){
         else if(x.via==='cartao'){ btnAcao='<span class="badge p" style="font-size:10px">Via fatura</span>'; }
         else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pagar')+'</button>'; }
         var row='<tr>';
-        row+='<td>'+x.desc+'</td><td><span class="badge a">'+x.cat+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
+        row+='<td>'+esc(x.desc)+'</td><td><span class="badge a">'+esc(x.cat)+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
         row+='<td><span class="badge b">'+recorLbl+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
         row+='<td style="font-weight:700;color:var(--red)">'+fmt(valorExib)+'</td><td>'+badgeDesp(st)+'</td>';
+        if(pag&&(pag.pago||pag.parcial)&&!pag.viaFatura) btnAcao+='<button class="btn-ed" title="Estornar pagamento" onclick="estornarDesp('+x.id+',\''+mes+'\')"><i class="ti ti-arrow-back-up"></i></button>';
         row+='<td><div class="btn-group">'+btnAcao+'<button class="btn-ed" onclick="edDesp('+x.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delDesp('+x.id+')"><i class="ti ti-trash"></i></button></div></td></tr>';
         return row;
       }).join('');
@@ -1449,11 +1552,16 @@ function rCart(){
     var adiantBadge=adiant>0?'<div style="font-size:10px;color:var(--muted);margin-top:2px">Total: '+fmt(fBruta)+' | Adiantado: <span style="color:var(--green)">'+fmt(adiant)+'</span></div>':'';
     var html='<div class="cc-card '+ccCor+'" style="cursor:pointer" onclick="selecionarCartaoLanc('+c.id+')">';
     html+='<div class="cc-actions" onclick="event.stopPropagation()"><button class="btn-ed" onclick="edCart('+c.id+')"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delCart('+c.id+')"><i class="ti ti-trash"></i></button></div>';
-    html+='<div class="cc-name">'+c.nome+'</div><div class="cc-band">'+c.band+(mes!==MA?' <span style="color:var(--muted)">— '+mn(mes)+'</span>':'')+'</div>';
+    html+='<div class="cc-name">'+esc(c.nome)+'</div><div class="cc-band">'+c.band+(mes!==MA?' <span style="color:var(--muted)">— '+mn(mes)+'</span>':'')+'</div>';
     html+='<div class="cc-fat" style="color:'+(paga?'var(--green)':fatValCor)+'">'+fmt(fLiq)+'</div>';
     html+=adiantBadge;
+    if(paga){
+      var pf=pagoFatura(c,mes), difF=Math.round((fLiq-pf)*100)/100;
+      if(difF>0.01) html+='<div style="font-size:11px;color:var(--amber);margin-top:4px" onclick="event.stopPropagation()"><i class="ti ti-alert-triangle"></i> Paga '+fmt(pf)+', mas a fatura hoje soma '+fmt(fLiq)+' (compra lancada/alterada depois). Falta '+fmt(difF)+' <button class="btn-pay" style="font-size:10px;padding:1px 6px;margin-left:4px" onclick="pagarDiferencaFatura('+c.id+',\''+mes+'\')">Pagar diferenca</button></div>';
+      else if(difF<-0.01) html+='<div style="font-size:11px;color:var(--muted);margin-top:4px"><i class="ti ti-info-circle"></i> Paga '+fmt(pf)+'; a fatura hoje soma '+fmt(fLiq)+' (itens removidos/movidos depois do pagamento)</div>';
+    }
     html+='<div class="cc-info" style="margin-top:4px">Fecha dia '+c.fech+' | Vence dia '+c.venc+'</div>';
-    html+='<div class="cc-info" style="margin-top:2px;font-size:11px;opacity:.8">'+(modoFat(c)==='fech'?'Fatura nomeada pelo mês de fechamento':'Fatura nomeada pelo mês de vencimento (cartão antigo)')+'</div>';
+    if(c.venc<c.fech) html+='<div class="cc-info" style="margin-top:2px;font-size:11px;opacity:.8">'+(modoFat(c)==='fech'?'Fatura nomeada pelo mês de fechamento':'Fatura nomeada pelo mês de vencimento (cartão antigo)')+'</div>';
     html+='<div class="cc-prog-bg"><div class="cc-prog-fill" style="width:'+pct.toFixed(0)+'%;background:'+cor+'"></div></div>';
     html+='<div class="cc-lim">'+pct.toFixed(0)+'% comprometido de '+fmt(c.lim)+' | Fatura atual: '+fmt(fLiq)+'</div>';
     html+='<div class="cc-status-row"><span class="cc-status-lbl" style="color:'+(paga?'var(--green)':ccCor==='cc-vermelho'?'var(--red)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-parcelado'?'var(--amber)':ccCor==='cc-parcial'?'#E67E22':'var(--muted)')+'">'+st.toUpperCase()+'</span>';
@@ -1490,18 +1598,8 @@ function rLanc(){
   });
   d.despesas.filter(function(x){ return x.via==='cartao'&&(!fc||x.qual===parseInt(fc)); }).forEach(function(x){
     var cart=d.cartoes.find(function(c){ return c.id===x.qual; }); if(!cart) return;
-    var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
-    pfm+=shiftFaturaCartao(cart,x.diaVenc||1); while(pfm>11){ pfm-=12; pfa++; }
-    if(fy<pfa||(fy===pfa&&fm2-1<pfm)) return;
-    if(x.recor==='Unico'&&(fm2-1!==pfm||fy!==pfa)) return;
-    var parcNum=1, np=1, vp=x.valor, tipo='Recorrente';
-    if(x.recor==='Parcelado'){
-      np=parseInt(x.parcelas)||1; var md=(fy-pfa)*12+((fm2-1)-pfm);
-      if(md<0||md>=np) return;
-      parcNum=md+1; vp=x.valor/np; tipo='Parcelado';
-    }
-    if(x.recor==='Anual'&&fm2-1!==pfm) return;
-    rows.push({desc:x.desc,cart:cart,cat:x.cat,parc:parcNum,tot:np,vp:vp,tipo:tipo,lid:x.id,isRec:true,dia:x.diaVenc||1,dataExib:'Dia '+(x.diaVenc||1)});
+    var oc=ocorrDespCartao(x,cart,fm); if(!oc) return;
+    rows.push({desc:x.desc,cart:cart,cat:x.cat,parc:oc.parc,tot:oc.np,vp:oc.valor,tipo:x.recor==='Parcelado'?'Parcelado':'Recorrente',lid:x.id,isRec:true,dia:x.diaVenc||1,dataExib:'Dia '+(x.diaVenc||1)});
   });
   // Saldo anterior na fatura
   (d.ajustesFatura||[]).filter(function(a){ return a.destinoMes===fm&&(!fc||a.cartaoId===parseInt(fc)); }).forEach(function(a){
@@ -1565,8 +1663,78 @@ function saveCartForm(){ var nome=el('fct-nome').value.trim(); var fech=parseInt
 function saveLancForm(){ var desc=el('fl-desc').value.trim(); var val=maskedVal('fl-val'); var cid=parseInt(el('fl-cart').value); var parc=parseInt(el('fl-parc').value)||1; var data=el('fl-data').value; if(!desc||!val||!data||isNaN(cid)||cid<=0){ el('fl-err').style.display='block'; return; } el('fl-err').style.display='none'; D().lancamentos.push({id:nid(),desc:desc,cartaoId:cid,cat:el('fl-cat').value,valor:val,parcelas:parc,data:data}); closeForm('f-lanc'); el('fl-desc').value=''; el('fl-val').value=''; rCart(); rLanc(); rDash(); syncToSheets(); }
 
 // ===== DELETES =====
-function delConta(id){ if(!confirm('Remover conta?')) return; D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
-function delRec(id){ var r=D().receitas.find(function(x){ return x.id===id; }); if(!r) return; var temPago=Object.values(r.pagamentos||{}).some(function(p){ return p.pago||p.parcial; }); if(temPago){ if(!confirm('Essa receita tem pagamentos registrados. Remover mesmo assim?')) return; } else { if(!confirm('Remover esta receita?')) return; } D().receitas=D().receitas.filter(function(x){ return x.id!==id; }); rRec(); rDash(); syncToSheets(); }
+function delConta(id){
+  var d=D(); var nEx=d.extrato.filter(function(e){ return e.contaId===id; }).length;
+  var nRef=d.despesas.filter(function(x){ return x.via==='conta'&&x.qual===id; }).length+d.receitas.filter(function(r){ return r.contaId===id; }).length;
+  if(nEx||nRef){ alert('Esta conta tem '+nEx+' lancamento(s) no extrato e '+nRef+' receita(s)/despesa(s) ligadas a ela.\n\nApagar faria o saldo desses lancamentos sumir dos totais. Mova as receitas/despesas para outra conta antes, ou mantenha a conta.'); return; }
+  if(!confirm('Remover conta?')) return; D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
+// ===== ESTORNO DE PAGAMENTO / RECEBIMENTO =====
+// Desfaz o status do mes E remove do extrato o(s) lancamento(s) que aquele pagamento gerou,
+// pra saldo e status nunca ficarem em desacordo. Pagamentos novos guardam o id do lancamento
+// (pag.exIds); nos antigos, procura pelo texto exato que o app grava ("Descricao (Mes Ano)").
+function lancamentosDoPagamento(pag,tipo,desc,mes,sinal){
+  var d=D();
+  if(pag.exIds&&pag.exIds.length) return d.extrato.filter(function(e){ return pag.exIds.indexOf(e.id)>=0; });
+  var alvo=desc+' ('+mn(mes)+')'; var total=sinal*(pag.valorRec||pag.valorPago||0);
+  var cand=d.extrato.filter(function(e){ return e.tipo===tipo&&e.desc===alvo; });
+  var soma=cand.reduce(function(a,e){ return a+e.valor; },0);
+  return Math.abs(soma-total)<0.01?cand:[]; // so remove se bater exatamente com o valor registrado
+}
+function estornar(item,mes,tipo,campoValor,sinal,rerender){
+  var pag=item.pagamentos[mes]; if(!pag) return;
+  if(pag.viaFatura){ toast('Esta despesa foi paga pela fatura do cartao — desfaca pelo cartao','r'); return; }
+  var valor=pag[campoValor]||(pag.pago?(tipo==='Receita'?item.valor:valorDespMes(item)):0);
+  var lancs=lancamentosDoPagamento(pag,tipo,item.desc,mes,sinal);
+  var msg='Estornar '+(tipo==='Receita'?'o recebimento':'o pagamento')+' de "'+item.desc+'" ('+mn(mes)+') — '+fmt(valor)+'?\n\n';
+  msg+=lancs.length?('Sera removido do extrato: '+lancs.map(function(e){ return e.data+' '+fmt(e.valor)+' ('+e.contaNome+')'; }).join(', ')+'.')
+                   :'Nao encontrei o lancamento correspondente no extrato (pode ter sido editado ou apagado). So o status volta para pendente — confira o extrato depois.';
+  if(!confirm(msg)) return;
+  var ids=lancs.map(function(e){ return e; });
+  D().extrato=D().extrato.filter(function(e){ return ids.indexOf(e)<0; });
+  delete item.pagamentos[mes];
+  toast('Estorno feito','a');
+  rerender(); renderAll(); syncToSheets();
+}
+function estornarRec(id,mes){ var r=D().receitas.find(function(x){ return x.id===id; }); if(r) estornar(r,mes,'Receita','valorRec',1,rRec); }
+function estornarDesp(id,mes){ var x=D().despesas.find(function(y){ return y.id===id; }); if(x) estornar(x,mes,'Despesa','valorPago',-1,rDesp); }
+
+// Encerrar uma recorrencia a partir de um mes: some dali pra frente, mas os meses passados
+// (pagos ou nao) continuam no historico/relatorios. Apagar o registro reescreve o passado.
+function modalExcluirRecorrente(tipo,item,mes){
+  var nome=tipo==='rec'?'receita':'despesa';
+  el('modal-ttl').textContent='Excluir '+nome+' recorrente';
+  el('modal-body').innerHTML=
+    '<p style="color:var(--muted);font-size:13px;margin-bottom:1rem">"'+esc(item.desc)+'" se repete. O que deseja fazer?</p>'+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+    (tipo==='desp'?'<button class="btn-sm" style="width:100%;justify-content:center" onclick="closeModal();excluirDespApenasMes('+item.id+',\''+mes+'\')">Excluir somente '+mn(mes)+'</button>':'')+
+    '<button class="btn-sm" style="width:100%;justify-content:center" onclick="closeModal();encerrarRecorrencia(\''+tipo+'\','+item.id+',\''+mes+'\')">Encerrar a partir de '+mn(mes)+' (mantem o historico)</button>'+
+    '<button class="btn-del" style="width:100%;justify-content:center" onclick="closeModal();apagarRecorrenteTudo(\''+tipo+'\','+item.id+')">Apagar de todos os meses, inclusive os passados</button>'+
+    '</div>';
+  el('modal').classList.add('open');
+  editCtx=null;
+}
+function encerrarRecorrencia(tipo,id,mes){
+  var lista=tipo==='rec'?D().receitas:D().despesas;
+  var item=lista.find(function(x){ return x.id===id; }); if(!item) return;
+  var futuroPago=Object.keys(item.pagamentos||{}).filter(function(m){ return m>=mes&&(item.pagamentos[m].pago||item.pagamentos[m].parcial); });
+  if(futuroPago.length){ toast('Ha pagamento registrado em '+futuroPago.map(mn).join(', ')+' — estorne antes de encerrar','r'); return; }
+  item.fimMes=mesAnterior(mes,1);
+  toast('Encerrada a partir de '+mn(mes)+' — meses anteriores mantidos','g');
+  rRec(); rDesp(); rCart(); renderAll(); syncToSheets();
+}
+function apagarRecorrenteTudo(tipo,id){
+  var lista=tipo==='rec'?D().receitas:D().despesas;
+  var item=lista.find(function(x){ return x.id===id; }); if(!item) return;
+  var pagos=Object.keys(item.pagamentos||{}).filter(function(m){ return item.pagamentos[m].pago||item.pagamentos[m].parcial; });
+  if(pagos.length&&!confirm('"'+item.desc+'" tem pagamentos em '+pagos.length+' mes(es). Apagar vai tira-la tambem do historico e dos relatorios desses meses (o extrato e os saldos NAO mudam).\n\nPrefira "Encerrar a partir de...". Apagar mesmo assim?')) return;
+  if(tipo==='rec') D().receitas=D().receitas.filter(function(x){ return x.id!==id; });
+  else D().despesas=D().despesas.filter(function(x){ return x.id!==id; });
+  toast('Removida','g');
+  rRec(); rDesp(); rCart(); rHoje(); renderAll(); syncToSheets();
+}
+function delRec(id){
+  var rr=D().receitas.find(function(x){ return x.id===id; }); if(!rr) return;
+  if(rr.recor!=='Unico'){ modalExcluirRecorrente('rec',rr,filtroRecMes||MA); return; } var r=D().receitas.find(function(x){ return x.id===id; }); if(!r) return; var temPago=Object.values(r.pagamentos||{}).some(function(p){ return p.pago||p.parcial; }); if(temPago){ if(!confirm('Essa receita tem pagamentos registrados. Remover mesmo assim?')) return; } else { if(!confirm('Remover esta receita?')) return; } D().receitas=D().receitas.filter(function(x){ return x.id!==id; }); rRec(); rDash(); syncToSheets(); }
 function delDesp(id){
   var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
   var recorrenteIndef=x.recor==='Mensal'||x.recor==='Semanal'||x.recor==='Anual';
@@ -1576,16 +1744,7 @@ function delDesp(id){
     rDesp(); rDash(); rCart(); syncToSheets();
     return;
   }
-  var mes=filtroDespMes||MA;
-  el('modal-ttl').textContent='Excluir despesa recorrente';
-  el('modal-body').innerHTML=
-    '<p style="color:var(--muted);font-size:13px;margin-bottom:1rem">"'+x.desc+'" se repete todo mes. O que deseja fazer?</p>'+
-    '<div style="display:flex;flex-direction:column;gap:8px">'+
-    '<button class="btn-sm" style="width:100%;justify-content:center" onclick="closeModal();excluirDespApenasMes('+x.id+',\''+mes+'\')">Excluir somente '+mn(mes)+'</button>'+
-    '<button class="btn-del" style="width:100%;justify-content:center" onclick="closeModal();excluirDespTodas('+x.id+')">Excluir esta e todas as outras</button>'+
-    '</div>';
-  el('modal').classList.add('open');
-  editCtx=null;
+  modalExcluirRecorrente('desp',x,filtroDespMes||MA);
 }
 function excluirDespApenasMes(id,mes){
   var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
@@ -1594,12 +1753,11 @@ function excluirDespApenasMes(id,mes){
   toast('Despesa removida apenas de '+mn(mes),'g');
   rDesp(); rDash(); rCart(); rHoje(); syncToSheets();
 }
-function excluirDespTodas(id){
-  D().despesas=D().despesas.filter(function(d){ return d.id!==id; });
-  toast('Despesa removida','g');
-  rDesp(); rDash(); rCart(); rHoje(); syncToSheets();
-}
-function delCart(id){ if(!confirm('Remover cartao?')) return; D().cartoes=D().cartoes.filter(function(x){ return x.id!==id; }); rCart(); initSelects(); rDash(); syncToSheets(); }
+function delCart(id){
+  var d=D(); var nL=d.lancamentos.filter(function(l){ return l.cartaoId===id; }).length;
+  var nD=d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===id; }).length;
+  if(nL||nD){ alert('Este cartao tem '+nL+' compra(s) e '+nD+' despesa(s) ligadas a ele. Apague ou mova esses itens antes de remover o cartao.'); return; }
+  if(!confirm('Remover cartao?')) return; D().cartoes=D().cartoes.filter(function(x){ return x.id!==id; }); rCart(); initSelects(); rDash(); syncToSheets(); }
 function delLanc(id){ if(!confirm('Remover este lancamento?')) return; D().lancamentos=D().lancamentos.filter(function(x){ return x.id!==id; }); rCart(); rLanc(); rDash(); syncToSheets(); }
 
 // ===== MODAL EDITAR =====
@@ -1679,21 +1837,23 @@ function savePerfil(){
   var nova=el('pf-senha-nova').value;
   var conf=el('pf-senha-conf').value;
   var err=el('pf-err');
+  function falha(m){ err.style.display='block'; err.textContent=m; }
   err.style.display='none';
-  if(!nome){ err.style.display='block'; err.textContent='O nome nao pode estar vazio.'; return; }
-  var u=USERS[CU];
-  // trocar senha só se algum campo de senha foi preenchido
-  if(atual||nova||conf){
-    if(atual!==u.senha){ err.style.display='block'; err.textContent='Senha atual incorreta.'; return; }
-    if(!nova){ err.style.display='block'; err.textContent='Digite a nova senha.'; return; }
-    if(nova!==conf){ err.style.display='block'; err.textContent='As senhas nao coincidem.'; return; }
-    u.senha=nova;
+  if(!nome) return falha('O nome nao pode estar vazio.');
+  var trocarSenha=!!(atual||nova||conf);
+  if(trocarSenha){
+    if(!atual) return falha('Digite a senha atual.');
+    if(!nova) return falha('Digite a nova senha.');
+    if(nova!==conf) return falha('As senhas nao coincidem.');
   }
-  u.nome=nome;
-  el('sb-nome').textContent=nome;
-  saveUsersToSheets();
-  el('pf-senha-atual').value=''; el('pf-senha-nova').value=''; el('pf-senha-conf').value='';
-  toast('Perfil atualizado','g');
+  api('updateProfile',{nome:nome}).then(function(res){
+    USERS[CU].nome=res.user.nome; el('sb-nome').textContent=res.user.nome;
+    if(!trocarSenha) return null;
+    return api('changePassword',{atual:atual,nova:nova}).then(function(r2){ TOKEN=r2.token; });
+  }).then(function(){
+    el('pf-senha-atual').value=''; el('pf-senha-nova').value=''; el('pf-senha-conf').value='';
+    toast(trocarSenha?'Perfil e senha atualizados':'Perfil atualizado','g');
+  }).catch(function(e){ falha(e.message||'Erro ao salvar'); });
 }
 
 // ===== BACKUP =====
@@ -1704,7 +1864,7 @@ function baixarBackup(){
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
   a.href=url;
-  a.download='backup-mff-'+CU+'-'+hoje.toISOString().split('T')[0]+'.json';
+  a.download='backup-mff-'+CU+'-'+hojeISO()+'.json';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('Backup baixado','g');
@@ -1729,7 +1889,8 @@ function restaurarBackupArquivo(input){
     dados.lancamentos=dados.lancamentos||[];
     dados.extrato=dados.extrato||[];
     dados.nextId=dados.nextId||1;
-    DB[CU]=dados;
+    DB[CU]=normalizarDB(dados);
+    _permitirReducao=true; // restaurar backup pode ter menos registros que o atual — de proposito
     initSelects(); renderAll();
     ['hoje','calendario','dashboard','contas','receitas','despesas','cartoes','previsao','historico','relatorio'].forEach(function(s){
       if(s==='hoje') rHoje(); else if(s==='calendario') rCal(); else if(s==='dashboard') rDash();
@@ -1744,18 +1905,22 @@ function restaurarBackupArquivo(input){
 }
 
 // ===== ADMIN =====
+var ADMIN_USERS=[];
 function rAdmin(){
-  if(!CU||!USERS[CU].admin) return;
-  el('admin-tbody').innerHTML=Object.keys(USERS).map(function(login){
-    var u=USERS[login];
-    var isSelf=login===CU;
-    var badge=u.admin?'<span class="badge b">Admin</span>':'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--muted)">Usuario</span>';
-    var acoes='<div class="btn-group">'
-      +'<button class="btn-ed" onclick="adminEditUser(\''+login+'\')" title="Editar"><i class="ti ti-edit"></i></button>'
-      +(isSelf?'':'<button class="btn-del" onclick="adminDelUser(\''+login+'\')" title="Remover"><i class="ti ti-trash"></i></button>')
-      +'</div>';
-    return '<tr><td style="font-weight:600">'+login+'</td><td>'+u.nome+'</td><td>'+badge+'</td><td>'+acoes+'</td></tr>';
-  }).join('');
+  if(!CU||!USERS[CU]||!USERS[CU].admin) return;
+  el('admin-tbody').innerHTML='<tr><td colspan="4" style="color:var(--muted)">Carregando...</td></tr>';
+  api('adminListUsers').then(function(res){
+    ADMIN_USERS=res.users;
+    el('admin-tbody').innerHTML=ADMIN_USERS.map(function(u){
+      var isSelf=u.login===CU;
+      var badge=u.admin?'<span class="badge b">Admin</span>':'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--muted)">Usuario</span>';
+      var acoes='<div class="btn-group">'
+        +'<button class="btn-ed" onclick="adminEditUser(\''+esc(u.login)+'\')" title="Editar"><i class="ti ti-edit"></i></button>'
+        +(isSelf?'':'<button class="btn-del" onclick="adminDelUser(\''+esc(u.login)+'\')" title="Remover"><i class="ti ti-trash"></i></button>')
+        +'</div>';
+      return '<tr><td style="font-weight:600">'+esc(u.login)+'</td><td>'+esc(u.nome)+'</td><td>'+badge+'</td><td>'+acoes+'</td></tr>';
+    }).join('');
+  }).catch(function(e){ el('admin-tbody').innerHTML='<tr><td colspan="4" style="color:var(--red)">'+esc(e.message)+'</td></tr>'; });
 }
 function saveNewUser(){
   var login=el('au-login').value.trim().toLowerCase().replace(/\s/g,'');
@@ -1764,39 +1929,33 @@ function saveNewUser(){
   var err=el('au-err');
   err.style.display='none';
   if(!login||!nome||!senha){ err.style.display='block'; err.textContent='Preencha todos os campos.'; return; }
-  if(USERS[login]){ err.style.display='block'; err.textContent='Login "'+login+'" ja existe.'; return; }
-  USERS[login]={nome:nome,senha:senha,admin:false};
-  saveUsersToSheets();
-  closeForm('f-user');
-  el('au-login').value=''; el('au-nome').value=''; el('au-senha').value='';
-  rAdmin();
-  toast('Usuario "'+login+'" criado','g');
+  api('adminSaveUser',{novo:true,login:login,nome:nome,senha:senha,admin:false}).then(function(){
+    closeForm('f-user');
+    el('au-login').value=''; el('au-nome').value=''; el('au-senha').value='';
+    rAdmin();
+    toast('Usuario "'+login+'" criado','g');
+  }).catch(function(e){ err.style.display='block'; err.textContent=e.message; });
 }
 function adminDelUser(login){
   if(login===CU){ toast('Voce nao pode remover a si mesmo','r'); return; }
-  if(!confirm('Remover usuario "'+login+'"? Os dados financeiros dele serao mantidos no Sheets.')) return;
-  delete USERS[login];
-  saveUsersToSheets();
-  rAdmin();
-  toast('Usuario removido','g');
+  if(!confirm('Remover usuario "'+login+'"? Os dados financeiros dele continuam guardados no servidor.')) return;
+  api('adminDeleteUser',{login:login}).then(function(){ rAdmin(); toast('Usuario removido','g'); })
+    .catch(function(e){ toast(e.message,'r'); });
 }
 function adminEditUser(login){
-  var u=USERS[login];
+  var u=ADMIN_USERS.find(function(x){ return x.login===login; }); if(!u) return;
   openModal('Editar usuario: '+login,
-    '<div class="frow full" style="margin-bottom:10px"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nome de exibicao</label><input id="ea-nome" value="'+u.nome+'" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div></div>'
+    '<div class="frow full" style="margin-bottom:10px"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nome de exibicao</label><input id="ea-nome" value="'+esc(u.nome)+'" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div></div>'
     +'<div class="frow full" style="margin-bottom:10px"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nova senha (deixe vazio para nao alterar)</label><input type="password" id="ea-senha" style="width:100%;background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px"></div></div>'
-    +'<div class="frow full"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px"><input type="checkbox" id="ea-admin"'+(u.admin?' checked':'')+' style="margin-right:6px">Administrador</label></div></div>',
+    +'<div class="frow full"><div class="fg"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px"><input type="checkbox" id="ea-admin"'+(u.admin?' checked':'')+(login===CU?' disabled':'')+' style="margin-right:6px">Administrador</label></div></div>',
     function(){
       var novoNome=el('ea-nome').value.trim();
       var novaSenha=el('ea-senha').value;
-      var isAdmin=el('ea-admin').checked;
-      if(novoNome) u.nome=novoNome;
-      if(novaSenha) u.senha=novaSenha;
-      if(login!==CU) u.admin=isAdmin; // nao remove admin de si mesmo
-      if(login===CU) el('sb-nome').textContent=u.nome;
-      saveUsersToSheets();
-      rAdmin();
-      toast('Usuario "'+login+'" atualizado','g');
+      api('adminSaveUser',{login:login,nome:novoNome,senha:novaSenha||undefined,admin:el('ea-admin').checked}).then(function(res){
+        if(login===CU){ USERS[CU].nome=res.user.nome; el('sb-nome').textContent=res.user.nome; }
+        rAdmin(); toast('Usuario "'+login+'" atualizado','g');
+      }).catch(function(e){ toast(e.message,'r'); });
+      closeModal(); return false; // nao mexe nos dados financeiros, entao nao passa pelo salvamento do saveModal
     }
   );
 }
@@ -1820,18 +1979,11 @@ window.addEventListener('DOMContentLoaded',function(){
     ov.addEventListener('touchstart',function(e){ e.preventDefault(); closeSidebar(); },{passive:false});
     ov.addEventListener('click',function(){ closeSidebar(); });
   }
-  // Carrega usuarios do Sheets em segundo plano — a tela de login ja aparece
-  // pronta pra digitar, so o botao "Entrar" fica desabilitado ate isso terminar
-  // (evita bloquear a pagina inteira atras de uma chamada que pode demorar).
-  var lbtn=el('l-btn');
-  if(lbtn){ lbtn.disabled=true; lbtn.textContent='Carregando...'; }
-  loadUsers(function(){
-    usersReady=true;
-    if(lbtn){ lbtn.disabled=false; lbtn.textContent='Entrar'; }
-  });
 });
 document.addEventListener('visibilitychange',function(){
-  if(document.visibilityState==='hidden'&&CU){ clearTimeout(_syncTimer); syncToSheets(); }
+  if(!CU) return;
+  if(document.visibilityState==='hidden'){ if(_sujo) enviarAgora(); }
+  else { atualizarDataHoje(); checarVersaoServidor(); }
 });
 
 </script>
