@@ -221,6 +221,31 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
   .stats-grid{grid-template-columns:1fr 1fr!important}
   .stat-val{font-size:17px}
 }
+/* ===== Fase 2 ===== */
+.dlg-overlay{position:fixed;inset:0;background:rgba(3,8,14,.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem}
+.dlg-box{background:var(--card2);border:0.5px solid rgba(255,255,255,.12);border-radius:14px;max-width:440px;width:100%;padding:1.25rem 1.25rem 1rem;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.dlg-msg{font-size:14px;line-height:1.55;white-space:pre-line;color:var(--text);margin-bottom:1.1rem}
+.dlg-acoes{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.dlg-btn{border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;min-height:40px;cursor:pointer;border:0.5px solid var(--border)}
+.dlg-sec{background:transparent;color:var(--text)}
+.dlg-prim{background:var(--blue-btn);color:#fff;border-color:var(--blue-btn)}
+.dlg-perigo{background:var(--red-btn);color:#fff;border-color:var(--red-btn)}
+@media(max-width:700px){
+  .tcard{overflow-x:visible!important}
+  .tcard:has(table.ft){background:transparent;border:none}
+  table.ft{min-width:0!important;width:100%}
+  table.ft thead{display:none}
+  table.ft tbody{display:block}
+  table.ft tr{display:flex;flex-direction:column;background:var(--card);border:0.5px solid var(--border);border-radius:12px;margin-bottom:10px;padding:12px 14px}
+  table.ft td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 0!important;border:none!important;font-size:14px;text-align:right;min-height:0}
+  table.ft td::before{content:attr(data-label);color:var(--muted);font-size:12px;text-align:left;flex-shrink:0;font-weight:500}
+  table.ft td.td-titulo{order:-2;font-size:16px;font-weight:600;text-align:left;justify-content:flex-start;padding-bottom:6px!important}
+  table.ft td.td-valor{order:-1;font-size:18px}
+  table.ft td.td-acoes{order:9;justify-content:flex-end;padding-top:10px!important;margin-top:4px;border-top:0.5px solid var(--border)!important}
+  table.ft td.td-titulo::before,table.ft td.td-acoes::before,table.ft td.td-vazio::before{display:none}
+  table.ft td.td-vazio{justify-content:center;text-align:center;color:var(--muted)}
+  table.ft td:empty{display:none}
+}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
@@ -508,12 +533,12 @@ function enviarAgora(){
 }
 function conflitoDeVersao(){
   _sujo=false; marcarStatusSync('erro');
-  alert('Seus dados foram alterados em outro aparelho ou aba depois que esta tela foi aberta.\n\nPara nao apagar o que foi feito la, vou carregar a versao mais recente agora.\nConfira se a sua ultima alteracao aparece; se nao aparecer, faca-a de novo.');
+  aviso('Seus dados foram alterados em outro aparelho ou aba depois que esta tela foi aberta.\n\nPara nao apagar o que foi feito la, vou carregar a versao mais recente agora.\nConfira se a sua ultima alteracao aparece; se nao aparecer, faca-a de novo.');
   recarregarDoServidor();
 }
 function sessaoExpirada(){
   marcarStatusSync('erro');
-  alert('Sua sessao expirou. Entre de novo — a ultima alteracao feita nesta tela pode nao ter sido salva, confira depois de entrar.');
+  aviso('Sua sessao expirou. Entre de novo — a ultima alteracao feita nesta tela pode nao ter sido salva, confira depois de entrar.');
   _sujo=false; doLogout();
 }
 // Busca a versao atual do servidor e redesenha tudo (sem enviar nada).
@@ -707,6 +732,14 @@ function despesasDoMes(mes,soContaCorrente){
   });
   return lista;
 }
+// Situacao de uma despesa na tela, considerando o cartao: 'pago' | 'parcial' | 'pendente' | 'atrasado' | 'fatura'
+function statusDespTela(x,mes){
+  if(x.via!=='cartao') return statusDespMes(x,mes);
+  var cart=D().cartoes.find(function(c){ return c.id===x.qual; }); if(!cart) return statusDespMes(x,mes);
+  return statusFat(cart,mesFaturaDaDesp(x,cart,mes))==='paga'?'pago':'fatura';
+}
+function mesFaturaDaDesp(x,cart,mes){ return mesPosterior(mes,shiftFaturaCartao(cart,x.diaVenc||1)); }
+function valorPagoTela(x,mes){ return x.via==='cartao'?(statusDespTela(x,mes)==='pago'?valorDespMes(x):0):valorPagoMes(x,mes); }
 // Valor da parcela do mes (despesas parceladas contam so a fatia, nao o valor total da compra)
 function valorDespMes(x){ if(x.recor==='Parcelado'){ var np=parseInt(x.parcelas)||1; return x.valor/np; } return x.valor; }
 // Valor ja recebido/pago no mes, incluindo recebimentos/pagamentos parciais (nao so os totalmente quitados)
@@ -1391,13 +1424,13 @@ function confirmarFatura(){
   rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
 }
-function reverterUltimaFatura(cid){
+function reverterUltimaFatura(cid,_ok){
   var a=ultimaAcaoFatura;
   if(!a||a.cid!==cid) return;
   var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return;
   var rotulos={total:'pagamento total',parcial:'pagamento parcial',parcelar:'parcelamento',adiantar:'adiantamento'};
   var msg='Reverter '+rotulos[a.tipo]+' de '+fmt(a.valor)+' na fatura de '+cart.nome+' ('+mn(a.mes)+'), feito as '+a.quando.toLocaleTimeString('pt-BR')+'. Confirma?';
-  if(!confirm(msg)) return;
+  if(!_ok){ confirmar(msg,{ok:'Reverter',perigo:true}).then(function(ok){ if(ok) reverterUltimaFatura(cid,true); }); return; }
 
   removeEx(a.exId);
   if(a.fatStatusAntes===undefined) delete cart.fatStatus[a.mes]; else cart.fatStatus[a.mes]=a.fatStatusAntes;
@@ -1481,9 +1514,9 @@ function rContas(){
     ? '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:1.5rem">Sem movimentacoes neste filtro</td></tr>'
     : ex.map(function(o){ var e=o.e; var pos=e.valor>=0; return '<tr><td style="color:var(--muted)">'+e.data+'</td><td>'+e.desc+'</td><td><span class="badge b">'+(e.contaNome||'-')+'</span></td><td><span class="badge '+(pos?'g':'r')+'">'+e.tipo+'</span></td><td style="font-weight:700;color:var(--'+(pos?'green':'red')+')">'+fmt(Math.abs(e.valor))+'</td><td><button class="btn-del" onclick="delEx('+o.i+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></td></tr>'; }).join('');
 }
-function delEx(idx){
+function delEx(idx,_ok){
   var d=D(); var it=d.extrato[idx]; if(!it) return;
-  if(!confirm('Excluir este lancamento do extrato?\n\n'+it.data+' — '+it.desc+' ('+it.contaNome+')\n'+fmt(it.valor)+'\n\nIsso NAO desfaz o pagamento/status relacionado, so remove o registro do extrato (ajuste de saldo).')) return;
+  if(!_ok){ confirmar('Excluir este lancamento do extrato?\n\n'+it.data+' — '+it.desc+' ('+it.contaNome+')\n'+fmt(it.valor)+'\n\nIsso NAO desfaz o pagamento/status relacionado, so remove o registro do extrato (ajuste de saldo).',{ok:'Excluir',perigo:true}).then(function(ok){ if(ok) delEx(idx,true); }); return; }
   d.extrato.splice(idx,1);
   rContas(); rDash(); el('sb-saldo').textContent=fmt(saldoTotal());
   toast('Lancamento removido do extrato','a');
@@ -1526,20 +1559,20 @@ function rDesp(){
   if(!CU) return;
   var mes=el('desp-mes-sel')?el('desp-mes-sel').value:MA; filtroDespMes=mes;
   var dmTodas=despesasDoMes(mes,false);
-  var lista=dmTodas.filter(function(x){ var st=statusDespMes(x,mes); if(mundoDesp==='todos') return true; if(mundoDesp==='pago') return st==='pago'; if(mundoDesp==='pendente') return st==='pendente'; if(mundoDesp==='atrasado') return st==='atrasado'; return true; });
+  var lista=dmTodas.filter(function(x){ var st=statusDespTela(x,mes); if(mundoDesp==='todos') return true; if(mundoDesp==='pago') return st==='pago'; if(mundoDesp==='pendente') return st==='pendente'||st==='fatura'||st==='parcial'; if(mundoDesp==='atrasado') return st==='atrasado'; return true; });
   lista.sort(function(a,b){ return (a.diaVenc||1)-(b.diaVenc||1); });
   var d=D();
   var tPrevDesp=dmTodas.reduce(function(a,x){ return a+valorDespMes(x); },0);
-  var tPago=dmTodas.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
+  var tPago=dmTodas.reduce(function(a,x){ return a+valorPagoTela(x,mes); },0);
   if(el('desp-stats')) el('desp-stats').innerHTML=sc('Previsto no mes',fmt(tPrevDesp),'b')+sc('Pago',fmt(tPago),'g')+sc('Falta pagar',fmt(tPrevDesp-tPago),tPrevDesp-tPago>0?'a':'g');
   el('desp-tbody').innerHTML=lista.length===0
     ? '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.5rem">Nenhuma despesa neste filtro</td></tr>'
     : lista.map(function(x){
-        var st=statusDespMes(x,mes); var pag=x.pagamentos[mes];
+        var st=statusDespTela(x,mes); var pag=x.pagamentos[mes];
         var viaObj=x.via==='conta'?d.contas.find(function(ct){ return ct.id===x.qual; }):d.cartoes.find(function(ct){ return ct.id===x.qual; });
         var viaLbl=(x.via==='conta'?'Conta: ':'Cartao: ')+(viaObj?viaObj.banco||viaObj.nome:'-');
         var dataExib=fmtDataBR(mes+'-'+pad2(x.diaVenc||1));
-        var jaFoi=pag&&pag.pago;
+        var jaFoi=st==='pago';
         var np=1, valorExib=x.valor, recorLbl=x.recor;
         if(x.recor==='Parcelado'){
           np=parseInt(x.parcelas)||1; var pc=mes.split('-'); var po=(x.inicioMes||x.mesCad||MA).split('-');
@@ -1548,12 +1581,12 @@ function rDesp(){
         }
         var btnAcao;
         if(jaFoi){ btnAcao=''; }
-        else if(x.via==='cartao'){ btnAcao='<span class="badge p" style="font-size:11px">Via fatura</span>'; }
+        else if(x.via==='cartao'){ btnAcao=''; }
         else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pagar')+'</button>'; }
         var row='<tr>';
         row+='<td>'+esc(x.desc)+'</td><td><span class="badge a">'+esc(x.cat)+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
         row+='<td><span class="badge b">'+recorLbl+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
-        row+='<td style="font-weight:700;color:var(--red)">'+fmt(valorExib)+'</td><td>'+badgeDesp(st)+'</td>';
+        row+='<td style="font-weight:700;color:var(--red)">'+fmt(valorExib)+'</td><td>'+(st==='fatura'?'<span class="badge p" title="Paga junto com a fatura do cartao">Na fatura '+mn(mesFaturaDaDesp(x,viaObj,mes)).split(' ')[0]+'</span>':st==='pago'&&x.via==='cartao'?'<span class="badge g">Paga na fatura</span>':badgeDesp(st))+'</td>';
         if(pag&&(pag.pago||pag.parcial)&&!pag.viaFatura) btnAcao+='<button class="btn-ed" title="Estornar pagamento" onclick="estornarDesp('+x.id+',\''+mes+'\')" aria-label="Estornar pagamento"><i class="ti ti-arrow-back-up"></i></button>';
         row+='<td><div class="btn-group">'+btnAcao+'<button class="btn-ed" onclick="edDesp('+x.id+')" aria-label="Editar"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delDesp('+x.id+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></div></td></tr>';
         return row;
@@ -1686,11 +1719,11 @@ function saveCartForm(){ var nome=el('fct-nome').value.trim(); var fech=parseInt
 function saveLancForm(){ var desc=el('fl-desc').value.trim(); var val=maskedVal('fl-val'); var cid=parseInt(el('fl-cart').value); var parc=parseInt(el('fl-parc').value)||1; var data=el('fl-data').value; if(!desc||!val||!data||isNaN(cid)||cid<=0){ el('fl-err').style.display='block'; return; } el('fl-err').style.display='none'; D().lancamentos.push({id:nid(),desc:desc,cartaoId:cid,cat:el('fl-cat').value,valor:val,parcelas:parc,data:data}); closeForm('f-lanc'); el('fl-desc').value=''; el('fl-val').value=''; rCart(); rLanc(); rDash(); syncToSheets(); }
 
 // ===== DELETES =====
-function delConta(id){
+function delConta(id,_ok){
   var d=D(); var nEx=d.extrato.filter(function(e){ return e.contaId===id; }).length;
   var nRef=d.despesas.filter(function(x){ return x.via==='conta'&&x.qual===id; }).length+d.receitas.filter(function(r){ return r.contaId===id; }).length;
-  if(nEx||nRef){ alert('Esta conta tem '+nEx+' lancamento(s) no extrato e '+nRef+' receita(s)/despesa(s) ligadas a ela.\n\nApagar faria o saldo desses lancamentos sumir dos totais. Mova as receitas/despesas para outra conta antes, ou mantenha a conta.'); return; }
-  if(!confirm('Remover conta?')) return; D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
+  if(nEx||nRef){ aviso('Esta conta tem '+nEx+' lancamento(s) no extrato e '+nRef+' receita(s)/despesa(s) ligadas a ela.\n\nApagar faria o saldo desses lancamentos sumir dos totais. Mova as receitas/despesas para outra conta antes, ou mantenha a conta.'); return; }
+  if(!_ok){ confirmar('Remover a conta?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delConta(id,true); }); return; } D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
 // ===== ESTORNO DE PAGAMENTO / RECEBIMENTO =====
 // Desfaz o status do mes E remove do extrato o(s) lancamento(s) que aquele pagamento gerou,
 // pra saldo e status nunca ficarem em desacordo. Pagamentos novos guardam o id do lancamento
@@ -1703,7 +1736,7 @@ function lancamentosDoPagamento(pag,tipo,desc,mes,sinal){
   var soma=cand.reduce(function(a,e){ return a+e.valor; },0);
   return Math.abs(soma-total)<0.01?cand:[]; // so remove se bater exatamente com o valor registrado
 }
-function estornar(item,mes,tipo,campoValor,sinal,rerender){
+function estornar(item,mes,tipo,campoValor,sinal,rerender,_ok){
   var pag=item.pagamentos[mes]; if(!pag) return;
   if(pag.viaFatura){ toast('Esta despesa foi paga pela fatura do cartao — desfaca pelo cartao','r'); return; }
   var valor=pag[campoValor]||(pag.pago?(tipo==='Receita'?item.valor:valorDespMes(item)):0);
@@ -1711,7 +1744,7 @@ function estornar(item,mes,tipo,campoValor,sinal,rerender){
   var msg='Estornar '+(tipo==='Receita'?'o recebimento':'o pagamento')+' de "'+item.desc+'" ('+mn(mes)+') — '+fmt(valor)+'?\n\n';
   msg+=lancs.length?('Sera removido do extrato: '+lancs.map(function(e){ return e.data+' '+fmt(e.valor)+' ('+e.contaNome+')'; }).join(', ')+'.')
                    :'Nao encontrei o lancamento correspondente no extrato (pode ter sido editado ou apagado). So o status volta para pendente — confira o extrato depois.';
-  if(!confirm(msg)) return;
+  if(!_ok){ confirmar(msg,{ok:'Estornar',perigo:true}).then(function(ok){ if(ok) estornar(item,mes,tipo,campoValor,sinal,rerender,true); }); return; }
   var ids=lancs.map(function(e){ return e; });
   D().extrato=D().extrato.filter(function(e){ return ids.indexOf(e)<0; });
   delete item.pagamentos[mes];
@@ -1745,24 +1778,24 @@ function encerrarRecorrencia(tipo,id,mes){
   toast('Encerrada a partir de '+mn(mes)+' — meses anteriores mantidos','g');
   rRec(); rDesp(); rCart(); renderAll(); syncToSheets();
 }
-function apagarRecorrenteTudo(tipo,id){
+function apagarRecorrenteTudo(tipo,id,_ok){
   var lista=tipo==='rec'?D().receitas:D().despesas;
   var item=lista.find(function(x){ return x.id===id; }); if(!item) return;
   var pagos=Object.keys(item.pagamentos||{}).filter(function(m){ return item.pagamentos[m].pago||item.pagamentos[m].parcial; });
-  if(pagos.length&&!confirm('"'+item.desc+'" tem pagamentos em '+pagos.length+' mes(es). Apagar vai tira-la tambem do historico e dos relatorios desses meses (o extrato e os saldos NAO mudam).\n\nPrefira "Encerrar a partir de...". Apagar mesmo assim?')) return;
+  if(pagos.length&&!_ok){ confirmar('"'+item.desc+'" tem pagamentos em '+pagos.length+' mes(es). Apagar vai tira-la tambem do historico e dos relatorios desses meses (o extrato e os saldos NAO mudam).\n\nPrefira "Encerrar a partir de...". Apagar mesmo assim?',{ok:'Apagar',perigo:true}).then(function(ok){ if(ok) apagarRecorrenteTudo(tipo,id,true); }); return; }
   if(tipo==='rec') D().receitas=D().receitas.filter(function(x){ return x.id!==id; });
   else D().despesas=D().despesas.filter(function(x){ return x.id!==id; });
   toast('Removida','g');
   rRec(); rDesp(); rCart(); rHoje(); renderAll(); syncToSheets();
 }
-function delRec(id){
+function delRec(id,_ok){
   var rr=D().receitas.find(function(x){ return x.id===id; }); if(!rr) return;
-  if(rr.recor!=='Unico'){ modalExcluirRecorrente('rec',rr,filtroRecMes||MA); return; } var r=D().receitas.find(function(x){ return x.id===id; }); if(!r) return; var temPago=Object.values(r.pagamentos||{}).some(function(p){ return p.pago||p.parcial; }); if(temPago){ if(!confirm('Essa receita tem pagamentos registrados. Remover mesmo assim?')) return; } else { if(!confirm('Remover esta receita?')) return; } D().receitas=D().receitas.filter(function(x){ return x.id!==id; }); rRec(); rDash(); syncToSheets(); }
-function delDesp(id){
+  if(rr.recor!=='Unico'){ modalExcluirRecorrente('rec',rr,filtroRecMes||MA); return; } var r=D().receitas.find(function(x){ return x.id===id; }); if(!r) return; var temPago=Object.values(r.pagamentos||{}).some(function(p){ return p.pago||p.parcial; }); if(!_ok){ confirmar(temPago?'Essa receita tem pagamentos registrados. Remover mesmo assim?':'Remover esta receita?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delRec(id,true); }); return; } D().receitas=D().receitas.filter(function(x){ return x.id!==id; }); rRec(); rDash(); syncToSheets(); }
+function delDesp(id,_ok){
   var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
   var recorrenteIndef=x.recor==='Mensal'||x.recor==='Semanal'||x.recor==='Anual';
   if(!recorrenteIndef){
-    if(!confirm('Remover esta despesa?')) return;
+    if(!_ok){ confirmar('Remover esta despesa?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delDesp(id,true); }); return; }
     D().despesas=D().despesas.filter(function(d){ return d.id!==id; });
     rDesp(); rDash(); rCart(); syncToSheets();
     return;
@@ -1776,12 +1809,12 @@ function excluirDespApenasMes(id,mes){
   toast('Despesa removida apenas de '+mn(mes),'g');
   rDesp(); rDash(); rCart(); rHoje(); syncToSheets();
 }
-function delCart(id){
+function delCart(id,_ok){
   var d=D(); var nL=d.lancamentos.filter(function(l){ return l.cartaoId===id; }).length;
   var nD=d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===id; }).length;
-  if(nL||nD){ alert('Este cartao tem '+nL+' compra(s) e '+nD+' despesa(s) ligadas a ele. Apague ou mova esses itens antes de remover o cartao.'); return; }
-  if(!confirm('Remover cartao?')) return; D().cartoes=D().cartoes.filter(function(x){ return x.id!==id; }); rCart(); initSelects(); rDash(); syncToSheets(); }
-function delLanc(id){ if(!confirm('Remover este lancamento?')) return; D().lancamentos=D().lancamentos.filter(function(x){ return x.id!==id; }); rCart(); rLanc(); rDash(); syncToSheets(); }
+  if(nL||nD){ aviso('Este cartao tem '+nL+' compra(s) e '+nD+' despesa(s) ligadas a ele. Apague ou mova esses itens antes de remover o cartao.'); return; }
+  if(!_ok){ confirmar('Remover o cartao?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delCart(id,true); }); return; } D().cartoes=D().cartoes.filter(function(x){ return x.id!==id; }); rCart(); initSelects(); rDash(); syncToSheets(); }
+function delLanc(id,_ok){ if(!_ok){ confirmar('Remover esta compra do cartao?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delLanc(id,true); }); return; } D().lancamentos=D().lancamentos.filter(function(x){ return x.id!==id; }); rCart(); rLanc(); rDash(); syncToSheets(); }
 
 // ===== MODAL EDITAR =====
 function openModal(ttl,body,ctx){ el('modal-ttl').textContent=ttl; el('modal-body').innerHTML=body; el('modal').classList.add('open'); editCtx=ctx; }
@@ -1905,7 +1938,8 @@ function restaurarBackupArquivo(input){
       input.value=''; return;
     }
     var dataBkp=parsed&&parsed.dataExportacao?fmtDataBR(parsed.dataExportacao.split('T')[0]):'data desconhecida';
-    if(!confirm('Isso vai SUBSTITUIR todos os seus dados atuais pelos dados do backup de '+dataBkp+'. Essa acao nao pode ser desfeita. Deseja continuar?')){ input.value=''; return; }
+    confirmar('Isso vai SUBSTITUIR todos os seus dados atuais pelos dados do backup de '+dataBkp+'. Essa acao nao pode ser desfeita. Deseja continuar?',{ok:'Substituir',perigo:true}).then(function(ok){
+    if(!ok){ input.value=''; return; }
     dados.ajustesFatura=dados.ajustesFatura||[];
     dados.parcelamentosFatura=dados.parcelamentosFatura||[];
     dados.adiantamentosFatura=dados.adiantamentosFatura||[];
@@ -1923,6 +1957,7 @@ function restaurarBackupArquivo(input){
     syncToSheets();
     toast('Backup restaurado com sucesso','g');
     input.value='';
+    });
   };
   reader.readAsText(file);
 }
@@ -1959,9 +1994,9 @@ function saveNewUser(){
     toast('Usuario "'+login+'" criado','g');
   }).catch(function(e){ err.style.display='block'; err.textContent=e.message; });
 }
-function adminDelUser(login){
+function adminDelUser(login,_ok){
   if(login===CU){ toast('Voce nao pode remover a si mesmo','r'); return; }
-  if(!confirm('Remover usuario "'+login+'"? Os dados financeiros dele continuam guardados no servidor.')) return;
+  if(!_ok){ confirmar('Remover o usuario "'+login+'"? Os dados financeiros dele continuam guardados no servidor.',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) adminDelUser(login,true); }); return; }
   api('adminDeleteUser',{login:login}).then(function(){ rAdmin(); toast('Usuario removido','g'); })
     .catch(function(e){ toast(e.message,'r'); });
 }
@@ -1983,6 +2018,34 @@ function adminEditUser(login){
   );
 }
 
+// ===== JANELAS DE CONFIRMACAO / AVISO =====
+// Substituem alert()/confirm() do navegador: mesmo visual do app, botao de perigo em vermelho,
+// Esc cancela, Enter confirma. Devolvem Promise (o codigo continua no .then).
+function dialogo(msg,botoes){
+  return new Promise(function(resolve){
+    var ov=document.createElement('div'); ov.className='dlg-overlay';
+    var box=document.createElement('div'); box.className='dlg-box'; box.setAttribute('role','alertdialog'); box.setAttribute('aria-modal','true');
+    var p=document.createElement('div'); p.className='dlg-msg'; p.textContent=msg; p.id='dlg-msg-'+Date.now(); box.setAttribute('aria-describedby',p.id);
+    var acoes=document.createElement('div'); acoes.className='dlg-acoes';
+    var anterior=document.activeElement;
+    function fechar(v){ document.removeEventListener('keydown',tecla,true); ov.remove(); if(anterior&&anterior.focus) try{ anterior.focus(); }catch(e){} resolve(v); }
+    function tecla(e){ if(e.key==='Escape'){ e.preventDefault(); fechar(botoes.length>1?false:true); } }
+    var foco=null;
+    botoes.forEach(function(b){
+      var bt=document.createElement('button'); bt.type='button'; bt.textContent=b.t;
+      bt.className=b.primario?(b.perigo?'dlg-btn dlg-perigo':'dlg-btn dlg-prim'):'dlg-btn dlg-sec';
+      bt.onclick=function(){ fechar(b.v); };
+      acoes.appendChild(bt); if(b.foco) foco=bt;
+    });
+    ov.addEventListener('click',function(e){ if(e.target===ov) fechar(botoes.length>1?false:true); });
+    box.appendChild(p); box.appendChild(acoes); ov.appendChild(box); document.body.appendChild(ov);
+    document.addEventListener('keydown',tecla,true);
+    (foco||acoes.lastChild).focus();
+  });
+}
+function confirmar(msg,op){ op=op||{}; return dialogo(msg,[{t:'Cancelar',v:false,foco:!!op.perigo},{t:op.ok||'Confirmar',v:true,primario:true,perigo:!!op.perigo,foco:!op.perigo}]); }
+function aviso(msg){ return dialogo(msg,[{t:'Entendi',v:true,primario:true,foco:true}]); }
+
 // ===== ACENTOS NA EXIBICAO =====
 // Varias palavras sem acento sao chaves internas ou valores salvos nos dados (ex: categoria
 // "Educacao", via "cartao", tela "historico"). Mudar no codigo quebraria dados antigos, entao o
@@ -2002,6 +2065,29 @@ function acentuarNo(no){
   var w=document.createTreeWalker(no,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT,null), n;
   while((n=w.nextNode())){ if(n.nodeType===3) acentuarNo(n); else ['placeholder','title','aria-label'].forEach(function(a){ var v=n.getAttribute(a); if(v){ var nv=acentuarTexto(v); if(nv!==v) n.setAttribute(a,nv); } }); }
   ligarLabels(no);
+  rotularTabelas(no);
+}
+function rotularTabelas(no){
+  if(no.nodeType!==1) return;
+  var tabs=[];
+  var t=no.closest?no.closest('table.ft'):null; if(t) tabs.push(t);
+  if(no.querySelectorAll) no.querySelectorAll('table.ft').forEach(function(x){ tabs.push(x); });
+  tabs.forEach(function(tab){
+    var cab=[].map.call(tab.querySelectorAll('thead th'),function(th){ return th.textContent.trim(); });
+    if(!cab.length) return;
+    var iTit=cab.findIndex(function(c){ return /^(descri|item|cliente|login)/i.test(c); }); if(iTit<0) iTit=0;
+    var iVal=cab.findIndex(function(c){ return /^(valor|previsto)/i.test(c); });
+    tab.querySelectorAll('tbody tr').forEach(function(tr){
+      [].forEach.call(tr.children,function(td,i){
+        if(td.hasAttribute('data-label')) return;
+        td.setAttribute('data-label',td.hasAttribute('colspan')?'':(cab[i]||''));
+        if(td.hasAttribute('colspan')) td.classList.add('td-vazio');
+        else if(i===iTit) td.classList.add('td-titulo');
+        else if(i===iVal) td.classList.add('td-valor');
+        else if(!cab[i]) td.classList.add('td-acoes');
+      });
+    });
+  });
 }
 // <label> sem "for": liga ao campo seguinte (leitor de tela passa a anunciar o nome do campo)
 function ligarLabels(raiz){
