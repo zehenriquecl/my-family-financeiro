@@ -246,6 +246,60 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
   table.ft td.td-vazio{justify-content:center;text-align:center;color:var(--muted)}
   table.ft td:empty{display:none}
 }
+/* ===== Fase 2B: linha do tempo + grafico ===== */
+.ag-resumo{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:1rem}
+.ag-resumo>div{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:.75rem .9rem;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ag-lbl{font-size:12px;color:var(--muted)}
+.ag-num{font-size:20px;font-weight:800;letter-spacing:-.3px}
+.ag-num.g{color:var(--green)}.ag-num.r{color:var(--red)}
+.ag-sub{font-size:12px;color:var(--muted)}
+.ag-atraso{border:0.5px solid rgba(240,103,91,.45);background:rgba(240,103,91,.08);border-radius:var(--radius);margin-bottom:1.25rem;overflow:hidden}
+.ag-atraso-h{width:100%;display:flex;align-items:center;gap:10px;background:none;border:none;color:var(--red);font-size:14px;font-weight:600;padding:.8rem 1rem;text-align:left;cursor:pointer;min-height:44px;line-height:1.5}
+.ag-atraso-h>span:first-of-type{flex:1}
+.ag-ver{font-size:13px;font-weight:500}
+.ag-chev{transition:transform .2s}
+.ag-atraso.aberto .ag-chev{transform:rotate(180deg)}
+.ag-atraso-lista{display:none;padding:0 .6rem .6rem}
+.ag-atraso.aberto .ag-atraso-lista{display:block}
+.ag-dia{margin-bottom:1.1rem}
+.ag-dia-h{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--muted);padding:0 .2rem .4rem;border-bottom:0.5px solid var(--border);margin-bottom:.45rem;gap:8px;flex-wrap:wrap}
+.ag-dia-h b{color:var(--text);font-weight:600}
+.ag-saldo{font-size:12px}
+.ag-item{display:flex;align-items:center;gap:12px;padding:.6rem .8rem;background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);margin-bottom:.35rem}
+.ag-ico{font-size:18px;color:var(--muted);flex-shrink:0;width:20px;text-align:center}
+.ag-item.receita .ag-ico{color:var(--green)}.ag-item.fatura .ag-ico{color:var(--purple)}.ag-item.atrasado .ag-ico{color:var(--red)}
+.ag-txt{flex:1;min-width:0}
+.ag-desc{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-dir{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.ag-val{font-size:14px;font-weight:700}.ag-val.g{color:var(--green)}
+.ag-vazio{font-size:13px;color:var(--muted);padding:.5rem .8rem}
+.ag-nota{font-size:12px;color:var(--muted);margin-top:.75rem;line-height:1.5}
+.ag-link{background:none;border:none;color:var(--blue);font-size:12px;padding:2px 0;cursor:pointer;text-decoration:underline;min-height:0}
+.graf-card{padding:1rem 1.1rem;margin-bottom:1.25rem}
+.graf-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:.9rem}
+.graf-tit{font-size:15px;font-weight:600}
+.graf-nums{display:flex;gap:22px;flex-wrap:wrap}
+.graf-nums>div{display:flex;flex-direction:column}
+.graf-nums b{font-size:17px;font-weight:800}.graf-nums b.r{color:var(--red)}.graf-nums b.a{color:var(--amber)}
+.graf-area{position:relative;height:170px;touch-action:pan-y;cursor:crosshair}
+.graf-area svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.graf-min{position:absolute;width:11px;height:11px;border-radius:50%;background:var(--amber);border:2px solid var(--card);transform:translate(-50%,-50%);pointer-events:none}
+.graf-min.neg{background:var(--red)}
+.graf-cursor{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.3);pointer-events:none;display:none}
+.graf-tip{position:absolute;top:-6px;transform:translate(-50%,-100%);background:var(--card2);border:0.5px solid rgba(255,255,255,.15);border-radius:6px;padding:4px 8px;font-size:12px;white-space:nowrap;pointer-events:none;display:none;z-index:2}
+.graf-eixo{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
+.graf-alerta{margin-top:.75rem;font-size:13px;color:var(--red)}
+#sec-dashboard .prog-row{display:none}
+#sec-dashboard .month-bar{padding:.6rem 1rem;margin-bottom:.9rem}
+#sec-dashboard .month-lbl{margin-bottom:0}
+@media(max-width:700px){
+  .ag-resumo{grid-template-columns:1fr 1fr}
+  .ag-resumo>div:first-child{grid-column:1/-1}
+  .ag-item{flex-wrap:wrap}
+  .ag-dir{width:100%;justify-content:space-between;padding-left:32px}
+  .graf-nums{gap:14px}
+  .graf-area{height:140px}
+}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
@@ -337,6 +391,7 @@ table.ft tr:hover td{background:rgba(255,255,255,0.015)}
     <div id="sec-hoje" class="section active"><div class="sec-title"><span><i class="ti ti-sun"></i> Ação do Dia</span><span id="hoje-data-lbl" style="font-size:13px;font-weight:400;color:var(--muted)"></span></div><div id="hoje-content"></div></div>
     <div id="sec-calendario" class="section"><div class="cal-header"><div class="cal-nav"><button class="btn-sm" onclick="calNav(-1)"><i class="ti ti-chevron-left"></i></button><span id="cal-mes-lbl" style="font-size:15px;font-weight:700;min-width:140px;text-align:center"></span><button class="btn-sm" onclick="calNav(1)"><i class="ti ti-chevron-right"></i></button></div><div style="display:flex;gap:10px;font-size:11px;color:var(--muted);flex-wrap:wrap"><span style="color:var(--green)">&#9632;</span> Receita <span style="color:var(--red)">&#9632;</span> Despesa <span style="color:var(--purple)">&#9632;</span> Fatura</div></div><div class="cal-grid" id="cal-grid"></div></div>
     <div id="sec-dashboard" class="section">
+      <div class="tcard graf-card" id="dash-graf"></div>
       <div class="month-bar"><div class="month-lbl"><span id="dash-mes-lbl">Jun 2026</span><select id="dash-mes-sel" class="sel-mes" onchange="rDash()"></select></div><div class="prog-row"><span class="prog-tag" style="color:var(--green)"><i class="ti ti-arrow-up"></i> Recebido</span><div class="prog-bg"><div class="prog-fill" id="p-rec" style="background:var(--green);width:0%"></div></div><span class="prog-val g" id="v-rec">R$ 0</span></div><div class="prog-row"><span class="prog-tag" style="color:var(--amber)"><i class="ti ti-clock"></i> Pendente</span><div class="prog-bg"><div class="prog-fill" id="p-pend" style="background:var(--amber);width:0%"></div></div><span class="prog-val a" id="v-pend">R$ 0</span></div><div class="prog-row"><span class="prog-tag" style="color:var(--red)"><i class="ti ti-arrow-down"></i> Despesas</span><div class="prog-bg"><div class="prog-fill" id="p-desp" style="background:var(--red);width:0%"></div></div><span class="prog-val r" id="v-desp">R$ 0</span></div><div class="prog-row"><span class="prog-tag" style="color:var(--purple)"><i class="ti ti-credit-card"></i> Faturas</span><div class="prog-bg"><div class="prog-fill" id="p-fat" style="background:var(--purple);width:0%"></div></div><span class="prog-val p" id="v-fat">R$ 0</span></div></div>
       <div class="stats-grid" id="dash-stats"></div>
       <div class="tcard"><div class="tcard-header"><span class="tcard-title"><i class="ti ti-calendar-due"></i> Próximos vencimentos</span></div><table class="ft"><thead><tr><th>Item</th><th>Tipo</th><th>Dia</th><th>Previsto</th><th>Status</th></tr></thead><tbody id="prox-tbody"></tbody></table></div>
@@ -1044,77 +1099,152 @@ function minMesDados(d){
   if(!meses.length) return MA;
   return meses.reduce(function(a,b){ return b<a?b:a; });
 }
-function rHoje(){
-  if(!CU) return;
-  var d=D(); var mes=MA; var diaH=hoje.getDate(); var items=[];
-  var lbl=el('hoje-data-lbl'); if(lbl) lbl.textContent=hoje.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
-  var pastItems=[]; var mIter=minMesDados(d);
-  while(mIter<mes){
-    var mCur=mIter;
+// ===== AGENDA (base das telas Hoje e Dashboard) =====
+// Tudo que esta em aberto — receitas, despesas pagas por conta e faturas de cartao — com a data
+// em que vence. Separa o que ja atrasou do que vem nos proximos N dias e calcula o saldo previsto
+// dia a dia. Faturas pagas, pagas em parte (resto foi pra fatura seguinte) ou parceladas nao entram.
+function dataDoMes(mes,dia){ var p=mes.split('-'), y=+p[0], m=+p[1]-1; var ult=new Date(y,m+1,0).getDate(); return new Date(y,m,Math.min(dia||1,ult)); }
+function isoLocal(dt){ return dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate()); }
+function dataCurta(dt){ return pad2(dt.getDate())+'/'+pad2(dt.getMonth()+1); }
+function diaSemana(dt){ var t=dt.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.',''); return t.charAt(0).toUpperCase()+t.slice(1); }
+function mesVencDaFatura(c,fm){ return (modoFat(c)==='fech'&&c.venc<c.fech)?proxMes(fm):fm; }
+// Contar as contas atrasadas como pagas hoje na previsao? (preferencia deste aparelho)
+function contarAtrasados(){ try{ return localStorage.getItem('mff_contar_atrasados')!=='nao'; }catch(e){ return true; } }
+function alternarContarAtrasados(){ try{ localStorage.setItem('mff_contar_atrasados',contarAtrasados()?'nao':'sim'); }catch(e){} rHoje(); rGraficoSaldo(); }
+function agenda(diasAFrente){
+  var d=D(); var h0=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  var lim=new Date(h0); lim.setDate(lim.getDate()+diasAFrente);
+  var mesLim=lim.getFullYear()+'-'+pad2(lim.getMonth()+1);
+  var atrasados=[], futuros=[];
+  function por(it){ if(it.data<h0) atrasados.push(it); else if(it.data<=lim) futuros.push(it); }
+  var m=minMesDados(d); if(m>MA) m=MA;
+  for(; m<=mesLim; m=proxMes(m)){
+    receitasDoMes(m).forEach(function(r){
+      var st=statusRecMes(r,m); if(st==='recebido') return;
+      var falta=r.valor-valorRecebidoMes(r,m); if(falta<=0.005) return;
+      por({cat:'receita',sinal:1,desc:r.desc,sub:st==='parcial'?'Recebido em parte — falta':'A receber',val:falta,data:dataDoMes(m,r.diaVenc),rid:r.id,rmes:m,parcial:st==='parcial'});
+    });
+    despesasDoMes(m,true).forEach(function(x){
+      var st=statusDespMes(x,m); if(st==='pago') return;
+      var falta=valorDespMes(x)-valorPagoMes(x,m); if(falta<=0.005) return;
+      var ct=d.contas.find(function(c){ return c.id===x.qual; });
+      por({cat:'despesa',sinal:-1,desc:x.desc,sub:(st==='parcial'?'Paga em parte — falta · ':'')+(ct?ct.banco:x.cat),val:falta,data:dataDoMes(m,x.diaVenc),did:x.id,dmes:m,parcial:st==='parcial'});
+    });
     d.cartoes.forEach(function(c){
-      if(mesFatVenc(c,mes)===mCur&&mCur!==mes) return;
-      var f=getFat(c.id,mCur); if(!f) return;
-      var st=statusFat(c,mCur); if(st==='paga') return;
-      pastItems.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' — '+mn(mCur),sub:'Nao paga',val:f,cat:'fatura',cid:c.id,fmes:mCur});
+      var st=statusFat(c,m); if(st==='paga'||st==='parcial'||st==='parcelada') return;
+      var f=getFat(c.id,m); if(f<=0.005) return;
+      por({cat:'fatura',sinal:-1,desc:'Fatura '+c.nome,sub:'Cartão · fatura de '+mn(m),val:f,data:dataDoMes(mesVencDaFatura(c,m),c.venc),cid:c.id,fmes:m});
     });
-    despesasDoMes(mCur,true).forEach(function(x){
-      var st=statusDespMes(x,mCur); if(st==='pago') return;
-      var restante=valorDespMes(x)-valorPagoMes(x,mCur); if(restante<=0) return;
-      pastItems.push({tipo:'urgente',icon:'ti-trending-down',desc:x.desc+' — '+mn(mCur),sub:st==='parcial'?'Parcial — falta':'Nao paga',val:restante,cat:'despesa',did:x.id,dmes:mCur,parcial:st==='parcial'});
-    });
-    receitasDoMes(mCur).forEach(function(r){
-      var st=statusRecMes(r,mCur); if(st==='recebido') return;
-      var restante=r.valor-valorRecebidoMes(r,mCur); if(restante<=0) return;
-      pastItems.push({tipo:'atencao',icon:'ti-clock',desc:'Cobrar: '+r.desc+' — '+mn(mCur),sub:st==='parcial'?'Parcial — falta':'Nao recebido',val:restante,cat:'receita',rid:r.id,rmes:mCur,parcial:st==='parcial'});
-    });
-    mIter=proxMes(mIter);
   }
-  d.cartoes.forEach(function(c){
-    var fm=mesFatVenc(c,mes); var f=getFat(c.id,fm); if(!f) return;
-    var st=statusFat(c,fm); if(st==='paga') return;
-    var dias=c.venc-diaH;
-    if(dias<0)   items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' VENCIDA',sub:'Venceu dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
-    else if(dias===0) items.push({tipo:'urgente',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence HOJE',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
-    else if(dias<=3)  items.push({tipo:'atencao',icon:'ti-credit-card',desc:'Fatura '+c.nome+' vence em '+dias+'d',sub:'Dia '+c.venc,val:f,cat:'fatura',cid:c.id,fmes:fm});
-  });
-  despesasDoMes(mes,true).forEach(function(x){
-    var st=statusDespMes(x,mes); if(st==='pago') return;
-    var restante=valorDespMes(x)-valorPagoMes(x,mes); if(restante<=0) return;
-    var parc=st==='parcial'; var sufDia=parc?' (falta parte)':'';
-    var dias=x.diaVenc-diaH;
-    if(dias<0)   items.push({tipo:'urgente',icon:'ti-trending-down',desc:x.desc+' ATRASADA',sub:'Venceu dia '+x.diaVenc+sufDia,val:restante,cat:'despesa',did:x.id,dmes:mes,parcial:parc});
-    else if(dias===0) items.push({tipo:'urgente',icon:'ti-trending-down',desc:x.desc+' vence HOJE',sub:'Dia '+x.diaVenc+sufDia,val:restante,cat:'despesa',did:x.id,dmes:mes,parcial:parc});
-    else if(dias<=2)  items.push({tipo:'atencao',icon:'ti-trending-down',desc:x.desc+' vence em '+dias+'d',sub:'Dia '+x.diaVenc+sufDia,val:restante,cat:'despesa',did:x.id,dmes:mes,parcial:parc});
-  });
-  receitasDoMes(mes).forEach(function(r){
-    var st=statusRecMes(r,mes); if(st==='recebido') return;
-    var restante=r.valor-valorRecebidoMes(r,mes); if(restante<=0) return;
-    var parc=st==='parcial'; var sufDia=parc?' (falta parte)':'';
-    var dias=r.diaVenc-diaH;
-    if(dias<0)   items.push({tipo:'atencao',icon:'ti-clock',desc:'Cobrar: '+r.desc,sub:'Previsto dia '+r.diaVenc+sufDia,val:restante,cat:'receita',rid:r.id,rmes:mes,parcial:parc});
-    else if(dias===0) items.push({tipo:'atencao',icon:'ti-trending-up',desc:r.desc+' — receber HOJE',sub:'Dia '+r.diaVenc+sufDia,val:restante,cat:'receita',rid:r.id,rmes:mes,parcial:parc});
-  });
-  var urg=items.filter(function(i){ return i.tipo==='urgente'; });
-  var ate=items.filter(function(i){ return i.tipo==='atencao'; });
-  var tRec=receitasDoMes(mes).reduce(function(a,r){ return a+valorRecebidoMes(r,mes); },0);
-  var tPrev=receitasDoMes(mes).reduce(function(a,r){ return a+r.valor; },0);
-  var html='';
-  if(urg.length) html+='<div class="hoje-section"><div class="hoje-section-title"><i class="ti ti-alert-triangle"></i> Urgente</div>'+urg.map(riHTML).join('')+'</div>';
-  if(pastItems.length) html+='<div class="hoje-section"><div class="hoje-section-title"><i class="ti ti-history"></i> Pendencias de meses anteriores</div>'+pastItems.map(riHTML).join('')+'</div>';
-  if(ate.length) html+='<div class="hoje-section"><div class="hoje-section-title"><i class="ti ti-clock"></i> Atencao — proximos dias</div>'+ate.map(riHTML).join('')+'</div>';
-  if(!urg.length&&!ate.length&&!pastItems.length) html='<div style="text-align:center;padding:2rem;background:var(--card);border-radius:8px;border:0.5px solid var(--border);margin-bottom:1rem"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:.5rem;color:var(--green)"></i><span style="color:var(--muted)">Tudo em dia!</span></div>';
-  html+='<div class="hoje-section"><div class="hoje-section-title"><i class="ti ti-chart-bar"></i> Resumo — '+mn(mes)+'</div><div class="stats-grid">'+sc('Saldo em contas',fmt(saldoTotal()),saldoTotal()>=0?'g':'r')+sc('Recebido',fmt(tRec),'g')+sc('Falta receber',fmt(tPrev-tRec),tPrev-tRec>0?'a':'g')+sc('Faturas do mes',fmt(totFat(mes)),'p')+sc('Urgencias',''+urg.length,urg.length>0?'r':'g')+'</div></div>';
-  el('hoje-content').innerHTML=html;
-  var b=el('hoje-badge'); if(b){ var cnt=urg.length+ate.length+pastItems.length; b.style.display=cnt?'inline':'none'; if(cnt) b.textContent=cnt; }
+  function porData(a,b){ return a.data-b.data||a.sinal-b.sinal; }
+  atrasados.sort(porData); futuros.sort(porData);
+  var inicial=saldoTotal();
+  // previsao conservadora: contas atrasadas como pagas hoje (se a opcao estiver ligada); recebimentos atrasados NAO entram
+  var atrasPagar=atrasados.filter(function(i){ return i.sinal<0; }).reduce(function(a,i){ return a+i.val; },0);
+  var contando=contarAtrasados();
+  var saldo=inicial-(contando?atrasPagar:0);
+  var dias=[];
+  for(var i=0;i<=diasAFrente;i++){
+    var dt=new Date(h0); dt.setDate(dt.getDate()+i); var iso=isoLocal(dt);
+    var its=futuros.filter(function(it){ return isoLocal(it.data)===iso; });
+    its.forEach(function(it){ saldo+=it.sinal*it.val; });
+    dias.push({data:dt,itens:its,saldo:saldo});
+  }
+  var menor=dias.reduce(function(a,x){ return x.saldo<a.saldo?x:a; },dias[0]);
+  return {atrasados:atrasados,dias:dias,saldoInicial:inicial,menor:menor,final:dias[dias.length-1],atrasPagar:atrasPagar,nAtrasPagar:atrasados.filter(function(i){ return i.sinal<0; }).length,contandoAtrasados:contando};
 }
-function riHTML(it){
+function agItemHTML(it,atrasado){
+  var ico=it.cat==='receita'?'ti-trending-up':it.cat==='fatura'?'ti-credit-card':'ti-trending-down';
   var ac='';
   if(it.cat==='receita') ac='<button class="btn-ok" data-rid="'+it.rid+'" data-rmes="'+it.rmes+'" onclick="abrirModalRec(this)">'+(it.parcial?'Complementar':'Receber')+'</button>';
   if(it.cat==='despesa') ac='<button class="btn-pay" data-did="'+it.did+'" data-dmes="'+it.dmes+'" onclick="abrirModalDesp(this)">'+(it.parcial?'Complementar':'Pagar')+'</button>';
-  if(it.cat==='fatura')  ac='<button class="btn-pay" data-cid="'+it.cid+'" data-fmes="'+it.fmes+'" onclick="abrirModalFatura(this)">Pagar fatura</button>';
-  return '<div class="hoje-item '+it.tipo+'"><div class="hoje-item-left"><i class="ti '+it.icon+'" style="font-size:16px"></i><div><div style="font-size:13px;font-weight:500">'+it.desc+'</div><div style="font-size:11px;color:var(--muted)">'+it.sub+'</div></div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0"><span style="font-size:14px;font-weight:800">'+fmt(it.val)+'</span>'+ac+'</div></div>';
+  if(it.cat==='fatura')  ac='<button class="btn-pay" data-cid="'+it.cid+'" data-fmes="'+it.fmes+'" onclick="abrirModalFatura(this)">Pagar</button>';
+  var sub=atrasado?('Venceu '+dataCurta(it.data)+' · '+it.sub):it.sub;
+  return '<div class="ag-item '+it.cat+(atrasado?' atrasado':'')+'"><i class="ti '+ico+' ag-ico" aria-hidden="true"></i>'
+    +'<div class="ag-txt"><div class="ag-desc">'+esc(it.desc)+'</div><div class="ag-sub">'+esc(sub)+'</div></div>'
+    +'<div class="ag-dir"><span class="ag-val'+(it.sinal>0?' g':'')+'">'+(it.sinal>0?'+ ':'')+fmt(it.val)+'</span>'+ac+'</div></div>';
+}
+var hojeAtrasoAberto=false;
+function toggleAtrasados(){ hojeAtrasoAberto=!hojeAtrasoAberto; rHoje(); }
+function rHoje(){
+  if(!CU) return;
+  var lbl=el('hoje-data-lbl'); if(lbl) lbl.textContent=hoje.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  var ag=agenda(30);
+  var html='<div class="ag-resumo">'
+    +'<div><span class="ag-lbl">Saldo hoje</span><span class="ag-num '+(ag.saldoInicial>=0?'g':'r')+'">'+fmt(ag.saldoInicial)+'</span></div>'
+    +'<div><span class="ag-lbl">Menor saldo previsto</span><span class="ag-num'+(ag.menor.saldo<0?' r':'')+'">'+fmt(ag.menor.saldo)+'</span><span class="ag-sub">em '+dataCurta(ag.menor.data)+'</span></div>'
+    +'<div><span class="ag-lbl">Daqui a 30 dias</span><span class="ag-num'+(ag.final.saldo<0?' r':'')+'">'+fmt(ag.final.saldo)+'</span><span class="ag-sub">em '+dataCurta(ag.final.data)+'</span></div>'
+    +'</div>';
+  if(ag.atrasados.length){
+    var pg=ag.atrasados.filter(function(i){ return i.sinal<0; }), rc=ag.atrasados.filter(function(i){ return i.sinal>0; });
+    var soma=function(l){ return l.reduce(function(a,i){ return a+i.val; },0); };
+    var partes=[];
+    if(pg.length) partes.push(pg.length+(pg.length>1?' contas atrasadas':' conta atrasada')+' · '+fmt(soma(pg)));
+    if(rc.length) partes.push(rc.length+(rc.length>1?' recebimentos atrasados':' recebimento atrasado')+' · '+fmt(soma(rc)));
+    html+='<div class="ag-atraso'+(hojeAtrasoAberto?' aberto':'')+'"><button class="ag-atraso-h" aria-expanded="'+hojeAtrasoAberto+'" onclick="toggleAtrasados()">'
+      +'<i class="ti ti-alert-triangle" aria-hidden="true"></i><span>'+partes.join('<br>')+'</span><span class="ag-ver">'+(hojeAtrasoAberto?'Ocultar':'Ver')+'</span><i class="ti ti-chevron-down ag-chev" aria-hidden="true"></i></button>'
+      +'<div class="ag-atraso-lista">'+ag.atrasados.map(function(it){ return agItemHTML(it,true); }).join('')+'</div></div>';
+  }
+  ag.dias.forEach(function(dd,i){
+    if(i>0&&!dd.itens.length) return;
+    var titulo=i===0?'Hoje':i===1?'Amanhã':diaSemana(dd.data);
+    html+='<div class="ag-dia"><div class="ag-dia-h"><span><b>'+titulo+'</b> · '+dataCurta(dd.data)+'</span><span class="ag-saldo">saldo previsto '+fmt(dd.saldo)+'</span></div>'
+      +(dd.itens.length?dd.itens.map(function(it){ return agItemHTML(it,false); }).join(''):'<div class="ag-vazio">Nada vence hoje</div>')+'</div>';
+  });
+  if(ag.dias.every(function(dd){ return !dd.itens.length; })) html+='<div class="ag-vazio">Nada vence nos próximos 30 dias.</div>';
+  html+=notaPrevisao(ag);
+  el('hoje-content').innerHTML=html;
+  var b=el('hoje-badge'); if(b){ var cnt=ag.atrasados.filter(function(i){ return i.sinal<0; }).length+ag.dias[0].itens.length; b.style.display=cnt?'inline':'none'; if(cnt) b.textContent=cnt; }
 }
 
+function notaPrevisao(ag){
+  var t='Saldo previsto: cada conta paga e cada recebimento entrando na data de vencimento. Recebimentos atrasados não entram, por segurança.';
+  if(ag.nAtrasPagar){
+    t+=ag.contandoAtrasados
+      ?' Inclui '+fmt(ag.atrasPagar)+' de '+ag.nAtrasPagar+' conta(s) atrasada(s) como se fossem pagas hoje — se você já pagou, marque como paga para a previsão ficar certa.'
+      :' Não inclui '+fmt(ag.atrasPagar)+' de '+ag.nAtrasPagar+' conta(s) atrasada(s).';
+    t+=' <button class="ag-link" onclick="alternarContarAtrasados()">'+(ag.contandoAtrasados?'Não contar atrasadas':'Contar atrasadas')+'</button>';
+  }
+  return '<p class="ag-nota">'+t+'</p>';
+}
+// ===== GRAFICO: saldo previsto nos proximos 30 dias (Dashboard) =====
+function rGraficoSaldo(){
+  var box=el('dash-graf'); if(!box||!CU) return;
+  var ag=agenda(30), dias=ag.dias, N=dias.length-1;
+  var vals=dias.map(function(x){ return x.saldo; }).concat([ag.saldoInicial]);
+  var lo=Math.min(0,Math.min.apply(null,vals)), hi=Math.max.apply(null,vals); if(hi-lo<1) hi=lo+1;
+  var folga=(hi-lo)*0.1; lo-=folga; hi+=folga;
+  var W=300,H=100;
+  var X=function(i){ return i/N*W; }, Y=function(v){ return H-(v-lo)/(hi-lo)*H; };
+  // degraus: o saldo muda no dia em que algo vence e fica parado ate o proximo
+  var p='M0,'+Y(dias[0].saldo).toFixed(2);
+  for(var i=1;i<=N;i++){ p+=' L'+X(i).toFixed(2)+','+Y(dias[i-1].saldo).toFixed(2)+' L'+X(i).toFixed(2)+','+Y(dias[i].saldo).toFixed(2); }
+  var area=p+' L'+W+','+H+' L0,'+H+' Z';
+  var iMin=dias.indexOf(ag.menor), neg=ag.menor.saldo<0;
+  var zero=lo<0?'<line x1="0" x2="'+W+'" y1="'+Y(0).toFixed(2)+'" y2="'+Y(0).toFixed(2)+'" stroke="var(--red)" stroke-dasharray="4 3" stroke-width="1" vector-effect="non-scaling-stroke"/>':'';
+  var resumo='Saldo previsto: hoje '+fmt(ag.saldoInicial)+', menor '+fmt(ag.menor.saldo)+' em '+dataCurta(ag.menor.data)+', daqui a 30 dias '+fmt(ag.final.saldo);
+  var eixo=[0,10,20,30].map(function(k){ return '<span>'+(k===0?'Hoje':dataCurta(dias[k].data))+'</span>'; }).join('');
+  box.innerHTML='<div class="graf-top"><div><div class="graf-tit">Saldo previsto · próximos 30 dias</div><div class="ag-sub">Somando o que vence em cada dia</div></div>'
+    +'<div class="graf-nums"><div><span class="ag-lbl">Hoje</span><b>'+fmt(ag.saldoInicial)+'</b></div>'
+    +'<div><span class="ag-lbl">Menor saldo</span><b'+(neg?' class="r"':' class="a"')+'>'+fmt(ag.menor.saldo)+'</b><span class="ag-sub">em '+dataCurta(ag.menor.data)+'</span></div>'
+    +'<div><span class="ag-lbl">Em 30 dias</span><b>'+fmt(ag.final.saldo)+'</b></div></div></div>'
+    +'<div class="graf-area" id="graf-area"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="'+resumo+'">'
+    +'<path d="'+area+'" fill="rgba(79,163,219,0.14)"/>'+zero
+    +'<path d="'+p+'" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>'
+    +'<span class="graf-min'+(neg?' neg':'')+'" style="left:'+(X(iMin)/W*100)+'%;top:'+(Y(ag.menor.saldo)/H*100)+'%"></span>'
+    +'<span class="graf-cursor" id="graf-cursor"></span><span class="graf-tip" id="graf-tip"></span></div>'
+    +'<div class="graf-eixo">'+eixo+'</div>'+notaPrevisao(ag)
+    +(neg?'<div class="graf-alerta"><i class="ti ti-alert-triangle" aria-hidden="true"></i> O saldo fica negativo em '+dataCurta(dias.find(function(x){ return x.saldo<0; }).data)+'. Veja a tela Hoje para o que vence até lá.</div>':'');
+  var ar=el('graf-area'), cur=el('graf-cursor'), tip=el('graf-tip');
+  function mover(e){
+    var r=ar.getBoundingClientRect(); var k=Math.max(0,Math.min(N,Math.round((e.clientX-r.left)/r.width*N)));
+    var pct=k/N*100; cur.style.display=tip.style.display='block'; cur.style.left=pct+'%';
+    tip.style.left=Math.max(12,Math.min(88,pct))+'%';
+    tip.textContent=(k===0?'Hoje':diaSemana(dias[k].data)+' '+dataCurta(dias[k].data))+' · '+fmt(dias[k].saldo);
+  }
+  ar.addEventListener('pointermove',mover); ar.addEventListener('pointerdown',mover);
+  ar.addEventListener('pointerleave',function(){ cur.style.display=tip.style.display='none'; });
+}
 // ===== CALENDÁRIO =====
 function calNav(d){ calMes=new Date(calMes.getFullYear(),calMes.getMonth()+d,1); rCal(); }
 function rCal(){
@@ -1168,14 +1298,16 @@ function rDash(){
   el('p-pend').style.width=Math.min(100,(previsto-recebido)/mx*100)+'%';
   el('p-desp').style.width=Math.min(100,tDesp/mx*100)+'%';
   el('p-fat').style.width=Math.min(100,tFat/mx*100)+'%';
-  el('dash-stats').innerHTML=sc('Saldo em contas',fmt(sal),sal>=0?'g':'r')+sc('Recebido',fmt(recebido),'g')+sc('Falta receber',fmt(faltaReceber),faltaReceber>0?'a':'g')+sc('Previsto',fmt(previsto),'b')+sc('Projecao',fmt(proj),proj>=0?'g':'r')+sc('Faturas (cartao)',fmt(tFat),'p')+sc('Despesas (conta)',fmt(tDesp),'r')+sc('Falta pagar',fmt(faltaPagar),faltaPagar>0?'a':'g');
+  // 4 numeros principais; recebido/previsto/faturas/despesas seguem no bloco "Receita x Despesas x Faturas" abaixo
+  el('dash-stats').innerHTML=sc('Saldo em contas',fmt(sal),sal>=0?'g':'r')+sc('Falta receber',fmt(faltaReceber),faltaReceber>0?'a':'g')+sc('Falta pagar',fmt(faltaPagar),faltaPagar>0?'a':'g')+sc('Resultado do mês (previsto)',fmt(proj),proj>=0?'g':'r');
   var prox=[];
   rm.filter(function(r){ return !(r.pagamentos[mes]&&r.pagamentos[mes].pago); }).forEach(function(r){ prox.push({n:r.desc,t:'Receita',dia:r.diaVenc,v:r.valor,c:'g',st:'Pendente'}); });
-  d.cartoes.forEach(function(c){ var fm=mesFatVenc(c,mes); var f=getFat(c.id,fm); if(!f) return; var st=statusFat(c,fm); if(st==='paga') return; var dr=c.venc-hoje.getDate(); prox.push({n:'Fatura '+c.nome,t:'Cartao',dia:c.venc,v:f,c:dr<=3?'r':'p',st:dr<0?'Vencida':dr===0?'Hoje':''+dr+'d'}); });
-  dm.forEach(function(x){ var st=statusDespMes(x,mes); prox.push({n:x.desc,t:x.cat,dia:x.diaVenc,v:valorDespMes(x),c:st==='atrasado'?'r':'a',st:st==='atrasado'?'Atrasada':'Previsto'}); });
+  d.cartoes.forEach(function(c){ var fm=mesFatVenc(c,mes); var f=getFat(c.id,fm); if(!f) return; var st=statusFat(c,fm); if(st==='paga') return; var dr=c.venc-hoje.getDate(); prox.push({n:'Fatura '+c.nome,t:'Fatura',dia:c.venc,v:f,c:dr<0?'r':'p',st:dr<0?'Vencida':dr===0?'Hoje':''+dr+'d'}); });
+  dm.forEach(function(x){ var st=statusDespMes(x,mes); prox.push({n:x.desc,t:'Despesa',dia:x.diaVenc,v:valorDespMes(x),c:st==='atrasado'?'r':'a',st:st==='atrasado'?'Atrasada':st==='pago'?'Paga':'Prevista'}); });
   prox.sort(function(a,b){ return a.dia-b.dia; });
   el('prox-tbody').innerHTML=prox.slice(0,12).map(function(p){ return '<tr><td>'+p.n+'</td><td><span class="badge '+p.c+'">'+p.t+'</span></td><td style="color:var(--muted);font-weight:700">dia '+p.dia+'</td><td style="font-weight:700">'+fmt(p.v)+'</td><td><span class="badge '+p.c+'">'+p.st+'</span></td></tr>'; }).join('');
   rInfos(d,mes,recebido,previsto,tDesp,tFat);
+  rGraficoSaldo();
 }
 function rInfos(d,mes,rec,prev,tDesp,tFat){
   var cats={}; despesasDoMes(mes,false).forEach(function(x){ cats[x.cat]=(cats[x.cat]||0)+valorDespMes(x); });
