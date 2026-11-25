@@ -1980,6 +1980,37 @@ function delConta(id,_ok){
   var nRef=d.despesas.filter(function(x){ return x.via==='conta'&&x.qual===id; }).length+d.receitas.filter(function(r){ return r.contaId===id; }).length;
   if(nEx||nRef){ aviso('Esta conta tem '+nEx+' lancamento(s) no extrato e '+nRef+' receita(s)/despesa(s) ligadas a ela.\n\nApagar faria o saldo desses lancamentos sumir dos totais. Mova as receitas/despesas para outra conta antes, ou mantenha a conta.'); return; }
   if(!_ok){ confirmar('Remover a conta?',{ok:'Remover',perigo:true}).then(function(ok){ if(ok) delConta(id,true); }); return; } D().contas=D().contas.filter(function(x){ return x.id!==id; }); rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
+// ===== NOVO VALOR EM RECORRENCIA =====
+// Mudar o valor de uma receita/despesa que se repete NAO pode reescrever os meses que ja passaram.
+// Antes: editar uma receita lancava um "Ajuste" no extrato para CADA mes ja recebido (ex: Start
+// Protecao 1.350 -> 350 tirou 5 x 1.000 do C6), e editar despesa de cartao mudava faturas ja pagas.
+// Agora o novo valor vale a partir do mes aberto na tela: o registro antigo e encerrado no mes
+// anterior e um novo continua dali em diante. Passado, extrato e saldo ficam como estavam.
+function precisaDividir(item,novoVal,mesNovo){
+  if(item.recor==='Unico'||item.recor==='Parcelado') return false;
+  if(centavos(novoVal)===centavos(item.valor)) return false;
+  var ini=item.inicioMes||item.mes||item.mesCad||MA;
+  return ini<mesNovo; // ha meses antes do mes escolhido: preserva-los
+}
+function confirmarNovoValor(item,novoVal,mesNovo){
+  return confirmar('O novo valor ('+fmt(novoVal)+') vale a partir de '+mn(mesNovo)+'.\n\nOs meses anteriores continuam com '+fmt(item.valor)+' — o saldo, o extrato e o histórico não mudam.\n\nPara mudar a partir de outro mês, cancele, escolha o mês no topo da tela e edite de novo.',{ok:'Confirmar'});
+}
+function dividirRecorrencia(lista,item,mesNovo,novoValor){
+  var novo=JSON.parse(JSON.stringify(item));
+  novo.id=nid(); novo.valor=novoValor; novo.inicioMes=mesNovo;
+  if('mes' in item) novo.mes=mesNovo;
+  if('mesCad' in item) novo.mesCad=mesNovo;
+  novo.pagamentos={};
+  Object.keys(item.pagamentos||{}).forEach(function(m){ if(m>=mesNovo){ novo.pagamentos[m]=item.pagamentos[m]; delete item.pagamentos[m]; } });
+  novo.pulados=(item.pulados||[]).filter(function(m){ return m>=mesNovo; });
+  item.pulados=(item.pulados||[]).filter(function(m){ return m<mesNovo; });
+  if(!novo.pulados.length) delete novo.pulados;
+  if(!item.pulados.length) delete item.pulados;
+  item.fimMes=mesAnterior(mesNovo,1); // o novo herda o fimMes antigo (se havia), o antigo termina antes do novo valor
+  lista.push(novo);
+  return novo;
+}
+
 // ===== ESTORNO DE PAGAMENTO / RECEBIMENTO =====
 // Desfaz o status do mes E remove do extrato o(s) lancamento(s) que aquele pagamento gerou,
 // pra saldo e status nunca ficarem em desacordo. Pagamentos novos guardam o id do lancamento
@@ -2090,20 +2121,18 @@ function edRec(id){
     '</div>',
     function(){
       var novoVal=parseFloat(el('e-val').value)||r.valor;
-      var diff=novoVal-r.valor;
-      if(diff!==0){
-        Object.keys(r.pagamentos).forEach(function(mes){
-          var pag=r.pagamentos[mes];
-          if(pag&&pag.pago){
-            addEx('Ajuste','Ajuste receita: '+r.desc+' ('+mn(mes)+')',diff,r.contaId);
-            pag.valorRec=(pag.valorRec||r.valor)+diff;
-          }
+      var c={desc:el('e-desc').value||r.desc, diaVenc:parseInt(el('e-dia').value)||r.diaVenc, mes:el('e-mes').value||r.mes, tipo:el('e-tipo').value||r.tipo, contaId:parseInt(el('e-conta').value)||r.contaId};
+      function aplicar(it){ it.desc=c.desc; it.diaVenc=c.diaVenc; it.tipo=c.tipo; it.contaId=c.contaId; }
+      var mesNovo=filtroRecMes||MA;
+      if(precisaDividir(r,novoVal,mesNovo)){
+        confirmarNovoValor(r,novoVal,mesNovo).then(function(ok){
+          if(!ok) return;
+          aplicar(r); dividirRecorrencia(D().receitas,r,mesNovo,novoVal);
+          closeModal(); renderTudo(); syncToSheets(); toast('Novo valor a partir de '+mn(mesNovo),'g');
         });
+        return false;
       }
-      r.desc=el('e-desc').value||r.desc; r.valor=novoVal;
-      r.diaVenc=parseInt(el('e-dia').value)||r.diaVenc; r.mes=el('e-mes').value||r.mes;
-      r.tipo=el('e-tipo').value||r.tipo;
-      r.contaId=parseInt(el('e-conta').value)||r.contaId;
+      aplicar(r); r.mes=c.mes; r.valor=novoVal;
       el('sb-saldo').textContent=fmt(saldoTotal());
     });
 }
@@ -2119,12 +2148,19 @@ function edDesp(id){
     '<div class="fg" style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Pagar via</label><select id="e-via" style="width:100%;background:var(--w05);border:0.5px solid var(--w07);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px">'+optsVia+'</select></div>',
     function(){
       var novoVal=parseFloat(el('e-val').value)||x.valor;
-      x.desc=el('e-desc').value||x.desc;
-      x.valor=novoVal;
-      x.diaVenc=parseInt(el('e-dia').value)||x.diaVenc;
-      x.cat=el('e-cat').value||x.cat;
-      var via=el('e-via').value;
-      if(via){ var parts=via.split(':'); x.via=parts[0]; x.qual=parseInt(parts[1]); }
+      var via=el('e-via').value, partes=via?via.split(':'):null;
+      var c={desc:el('e-desc').value||x.desc, diaVenc:parseInt(el('e-dia').value)||x.diaVenc, cat:el('e-cat').value||x.cat};
+      function aplicar(it){ it.desc=c.desc; it.diaVenc=c.diaVenc; it.cat=c.cat; if(partes){ it.via=partes[0]; it.qual=parseInt(partes[1]); } }
+      var mesNovo=filtroDespMes||MA;
+      if(precisaDividir(x,novoVal,mesNovo)){
+        confirmarNovoValor(x,novoVal,mesNovo).then(function(ok){
+          if(!ok) return;
+          aplicar(x); dividirRecorrencia(D().despesas,x,mesNovo,novoVal);
+          closeModal(); renderTudo(); syncToSheets(); toast('Novo valor a partir de '+mn(mesNovo),'g');
+        });
+        return false;
+      }
+      aplicar(x); x.valor=novoVal;
       el('sb-saldo').textContent=fmt(saldoTotal());
       rDesp(); rCart(); rDash();
     });
