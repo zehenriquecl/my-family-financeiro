@@ -814,8 +814,13 @@ function removeEx(exId){ if(!exId) return; var d=D(); d.extrato=d.extrato.filter
 function saldoConta(contaId){
   var ct=D().contas.find(function(c){ return c.id===contaId; });
   if(!ct) return 0;
-  return ct.saldoInicial+D().extrato.filter(function(e){ return e.contaId===contaId; }).reduce(function(a,e){ return a+e.valor; },0);
+  // soma em centavos inteiros: somar muitos valores com decimais acumula erro (ex: 520,41 virava 520,40999...)
+  var c=centavos(ct.saldoInicial)+D().extrato.filter(function(e){ return e.contaId===contaId; }).reduce(function(a,e){ return a+centavos(e.valor); },0);
+  return c/100;
 }
+function centavos(v){ return Math.round((Number(v)||0)*100); }
+// Ha saldo para tirar `val` da conta? Compara centavos inteiros, entao transferir/pagar o saldo exato funciona.
+function saldoSuficiente(contaId,val){ return centavos(saldoConta(contaId))>=centavos(val); }
 function saldoTotal(){ return D().contas.reduce(function(a,c){ return a+saldoConta(c.id); },0); }
 
 // ===== STATUS =====
@@ -995,7 +1000,7 @@ function pagarDiferencaFatura(cid,mes){
     function(){
       var val=maskedVal('dfat-val'); if(!val) return false;
       var contaId=parseInt(el('dfat-conta').value);
-      if(saldoConta(contaId)<val){ toast('Saldo insuficiente nessa conta','r'); return false; }
+      if(!saldoSuficiente(contaId,val)){ toast('Saldo insuficiente nessa conta','r'); return false; }
       ligarPagamentoFatura(cart,mes,addEx('Fatura','Fatura '+cart.nome+' diferenca ('+mn(mes)+')',-val,contaId));
       toast('Diferenca paga','g'); rCart();
     });
@@ -1472,7 +1477,7 @@ function abrirModalDesp(btn){
   el('modal').classList.add('open');
   editCtx=function(){
     var val=maskedVal('md-val'); if(!val) return false;
-    if(x.via==='conta'&&saldoConta(x.qual)<val){
+    if(x.via==='conta'&&!saldoSuficiente(x.qual,val)){
       toast('Saldo insuficiente em conta para pagar '+fmt(val),'r');
       return false;
     }
@@ -1576,7 +1581,7 @@ function confirmarFatura(){
     }
     var exId=null;
     if(ct){
-      if(saldoConta(cid)<val){
+      if(!saldoSuficiente(cid,val)){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
@@ -1592,7 +1597,7 @@ function confirmarFatura(){
     var prox=maskedVal('fat-prox');
     var exId=null;
     if(ct&&pago>0){
-      if(saldoConta(cid)<pago){
+      if(!saldoSuficiente(cid,pago)){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
@@ -1612,7 +1617,7 @@ function confirmarFatura(){
     var entrada=maskedVal('fat-entrada');
     var exId=null;
     if(ct&&entrada>0){
-      if(saldoConta(cid)<entrada){
+      if(!saldoSuficiente(cid,entrada)){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
@@ -1634,7 +1639,7 @@ function confirmarFatura(){
     var adiant=maskedVal('fat-adiant');
     var exId=null;
     if(ct&&adiant>0){
-      if(saldoConta(cid)<adiant){
+      if(!saldoSuficiente(cid,adiant)){
         toast('Saldo insuficiente em '+ct.banco+' ('+fmt(saldoConta(cid))+')','r');
         return false;
       }
@@ -1703,7 +1708,7 @@ function doTransferencia(){
   if(ori===dest||!val||val<=0){ err.style.display='block'; err.textContent='Selecione contas distintas e informe um valor.'; return; }
   var d=D(); var co=d.contas.find(function(c){ return c.id===ori; }); var cd=d.contas.find(function(c){ return c.id===dest; });
   if(!co||!cd) return;
-  if(saldoConta(co.id)<val){ err.style.display='block'; err.textContent='Saldo insuficiente em '+co.banco+' ('+fmt(saldoConta(co.id))+').'; return; }
+  if(!saldoSuficiente(co.id,val)){ err.style.display='block'; err.textContent='Saldo insuficiente em '+co.banco+' ('+fmt(saldoConta(co.id))+').'; return; }
   err.style.display='none';
   addEx('Saida','Transf. para '+cd.banco,-val,co.id);
   addEx('Entrada','Transf. de '+co.banco,val,cd.id);
