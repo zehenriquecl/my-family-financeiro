@@ -494,7 +494,7 @@ table.ft tr:hover td{background:var(--w015)}
       <div class="sec-title"><span><i class="ti ti-trending-down"></i> Despesas</span><div style="display:flex;gap:8px;align-items:center"><select id="desp-mes-sel" class="sel-mes" onchange="rDesp()"></select><button class="btn-sm" onclick="openForm('f-desp')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
       <div id="f-desp" class="form-panel">
         <div class="frow"><div class="fg"><label>Descrição</label><input id="fd-desc"></div><div class="fg"><label>Valor (R$)</label><input type="text" inputmode="numeric" id="fd-val" oninput="applyMask(this)"></div></div>
-        <div class="frow t3"><div class="fg"><label>Categoria</label><select id="fd-cat"></select></div><div class="fg"><label>Dia vencimento</label><input type="number" id="fd-dia" placeholder="10" min="1" max="31"></div><div class="fg"><label>Recorrência</label><select id="fd-recor"><option>Mensal</option><option>Semanal</option><option>Anual</option><option>Parcelado</option><option value="Unico">Único</option></select></div></div>
+        <div class="frow t3"><div class="fg"><label>Categoria</label><select id="fd-cat"></select></div><div class="fg"><label>Dia vencimento</label><input type="number" id="fd-dia" placeholder="10" min="1" max="31"></div><div class="fg"><label>Recorrência</label><select id="fd-recor"><option>Mensal</option><option>Anual</option><option>Parcelado</option><option value="Unico">Único</option></select></div></div>
         <div class="frow" id="fd-parc-row" style="display:none"><div class="fg"><label>Qtd parcelas</label><input type="number" id="fd-parc" placeholder="6" min="2" max="60"></div></div>
         <div class="frow"><div class="fg"><label>Pagar via</label><select id="fd-via" onchange="popDespQual()"><option value="conta">Conta corrente</option><option value="cartao">Cartão de crédito</option></select></div><div class="fg"><label>Qual</label><select id="fd-qual"></select></div></div>
         <div class="frow"><div class="fg"><label>Mês início</label><input id="fd-inicio" type="month"></div></div>
@@ -676,12 +676,11 @@ function recarregarDoServidor(emConflito){
   var user=CU; if(!user) return Promise.resolve();
   return apiComRetry('getAll').then(function(res){
     if(CU!==user) return;
-    // Janela aberta e "Desfazer" apontam para objetos/ids da versao antiga: sao descartados. Antes, a
-    // alteracao feita na janela ia para um objeto que nao existe mais (e se perdia calada), e o
-    // Desfazer podia apagar outro lancamento que tivesse o mesmo id na versao nova.
+    // Janela aberta aponta para objetos da versao antiga: e fechada. Antes, a alteracao feita na janela
+    // ia para um objeto que nao existe mais (e se perdia calada).
     var janela=!!(el('modal')&&el('modal').classList.contains('open'));
     if(janela) closeModal();
-    fatCtx=null; ultimaAcaoFatura=null;
+    fatCtx=null;
     DB[user]=normalizarDB(res.db); DB_REV=res.rev||0; _sujo=false; SYNC_OK=true;
     marcarStatusSync('ok'); initSelects(); renderTudo();
     if(janela&&!emConflito) aviso('Seus dados foram atualizados com alteracoes feitas em outro aparelho, e a janela que estava aberta foi fechada para nao gravar em cima de dados antigos.\n\nAbra de novo e refaca a alteracao.');
@@ -749,7 +748,7 @@ var USERS = {}; // so o proprio usuario logado (nome/admin); a lista completa so
 
 var CATS = ['Alimentacao','Assinatura','Cuidados Pessoais','Dizimos/Ofertas','Educacao','Empregada','Juros','Lazer','Moradia','Outros','Presentes','Previdencia','Saude','Seguros','Transporte','Vestuario','Viagens'];
 
-var CU=null, editCtx=null, fatCtx=null, ultimaAcaoFatura=null;
+var CU=null, editCtx=null, fatCtx=null;
 var hoje=new Date();
 // Data de hoje no fuso LOCAL (toISOString usa UTC: depois das 21h no Brasil gravava o dia seguinte)
 function hojeISO(){ var n=new Date(); return n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-'+pad2(n.getDate()); }
@@ -999,12 +998,13 @@ function getAdiantado(cid,mes){
 }
 // Quanto saiu das contas pra pagar a fatura `mes` do cartao (total, parcial, entrada ou diferenca).
 // Pagamentos novos ficam ligados por id (cart.fatExIds); os antigos sao achados pelo texto que o app grava.
-function pagoFatura(cart,mes){
+function lancamentosDaFatura(cart,mes){
   var ids=(cart.fatExIds&&cart.fatExIds[mes])||[];
   var nome=cart.nome.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), rot=mn(mes).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   var re=new RegExp('^(Fatura|Entrada fatura) '+nome+'( parcial| diferenca)? \\('+rot+'\\)$');
-  return -D().extrato.filter(function(e){ return ids.indexOf(e.id)>=0||re.test(e.desc||''); }).reduce(function(a,e){ return a+e.valor; },0);
+  return D().extrato.filter(function(e){ return (e.id!=null&&ids.indexOf(e.id)>=0)||re.test(e.desc||''); });
 }
+function pagoFatura(cart,mes){ return -lancamentosDaFatura(cart,mes).reduce(function(a,e){ return a+e.valor; },0); }
 function ligarPagamentoFatura(cart,mes,exId){
   if(!exId) return;
   cart.fatExIds=cart.fatExIds||{}; (cart.fatExIds[mes]=cart.fatExIds[mes]||[]).push(exId);
@@ -1118,8 +1118,8 @@ function doLogout(_forcar){
   clearTimeout(_syncTimer); clearTimeout(_retryTimer);
   if(CU) delete DB[CU];
   CU=null; TOKEN=null; SYNC_OK=false; _sujo=false; DB_REV=0; USERS={};
-  // o "Desfazer" e as janelas abertas de um usuario nunca podem valer para o proximo que entrar
-  ultimaAcaoFatura=null; fatCtx=null; editCtx=null; el('modal').classList.remove('open');
+  // janelas abertas de um usuario nunca podem valer para o proximo que entrar
+  fatCtx=null; editCtx=null; el('modal').classList.remove('open');
   document.body.classList.remove('logado');
   el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
@@ -1606,7 +1606,6 @@ function confirmarFatura(){
   var ct=d.contas.find(function(c){ return c.id===cid; });
   var tipoBtn=document.querySelector('.fat-tipo-btn.active');
   var tipo=tipoBtn?tipoBtn.getAttribute('data-tipo'):'total';
-  var fatStatusAntes=cart.fatStatus[mes];
 
   if(tipo==='total'){
     var val=maskedVal('fat-val');
@@ -1628,8 +1627,7 @@ function confirmarFatura(){
       exId=addEx('Fatura','Fatura '+cart.nome+' ('+mn(mes)+')',-val,cid);
     }
     cart.fatStatus[mes]='paga';
-    var tocadas=marcarDespCartaoComoPatoNaFatura(cart,mes);
-    ultimaAcaoFatura={tipo:'total',cid:cart.id,mes:mes,valor:val,fatStatusAntes:fatStatusAntes,exId:exId,despesasTocadas:tocadas,quando:new Date()};
+    marcarDespCartaoComoPatoNaFatura(cart,mes);
     toast('Fatura '+cart.nome+' paga','g');
 
   } else if(tipo==='parcial'){
@@ -1652,7 +1650,6 @@ function confirmarFatura(){
       ajusteId=nid();
       d.ajustesFatura.push({id:ajusteId,cartaoId:cart.id,origemMes:mes,destinoMes:proxMes,tipo:'saldo_anterior',valorOriginal:fLiq-pago,valorFinal:prox,status:'pendente'});
     }
-    ultimaAcaoFatura={tipo:'parcial',cid:cart.id,mes:mes,valor:pago,fatStatusAntes:fatStatusAntes,exId:exId,ajusteId:ajusteId,quando:new Date()};
     toast('Pagamento parcial registrado','a');
 
   } else if(tipo==='parcelar'){
@@ -1674,7 +1671,6 @@ function confirmarFatura(){
     }
     var parcId=nid();
     d.parcelamentosFatura.push({id:parcId,cartaoId:cart.id,origemMes:mes,valorFaturaOriginal:fatCtx.fBruta,valorEntrada:entrada,valorParcelado:fLiq-entrada,contaEntradaId:cid,dataEntrada:hojeISO(),parcelas:parcelas});
-    ultimaAcaoFatura={tipo:'parcelar',cid:cart.id,mes:mes,valor:entrada,fatStatusAntes:fatStatusAntes,exId:exId,parcId:parcId,quando:new Date()};
     toast('Fatura parcelada em '+np+'x','g');
 
   } else if(tipo==='adiantar'){
@@ -1694,8 +1690,7 @@ function confirmarFatura(){
       exId=addEx('Adiantamento','Adiant. fatura '+cart.nome+' ('+mn(mes)+')',-adiant,cid);
     }
     var adiantId=nid();
-    d.adiantamentosFatura.push({id:adiantId,cartaoId:cart.id,mes:mes,valor:adiant,data:hojeISO(),contaId:cid});
-    ultimaAcaoFatura={tipo:'adiantar',cid:cart.id,mes:mes,valor:adiant,fatStatusAntes:fatStatusAntes,exId:exId,adiantId:adiantId,quando:new Date()};
+    d.adiantamentosFatura.push({id:adiantId,cartaoId:cart.id,mes:mes,valor:adiant,data:hojeISO(),contaId:cid,exId:exId}); // exId: o estorno acha o lancamento certo
     toast('Adiantamento de '+fmt(adiant)+' registrado','g');
   }
 
@@ -1704,39 +1699,61 @@ function confirmarFatura(){
   rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
 }
-function reverterUltimaFatura(cid,_ok){
-  var a=ultimaAcaoFatura;
-  if(!a||a.cid!==cid) return;
+// ===== ESTORNO DE PAGAMENTO DE FATURA =====
+// Substitui o antigo "Desfazer" (so valia para o ultimo pagamento e sumia ao recarregar a pagina):
+// qualquer fatura paga, paga em parte ou parcelada pode ser estornada a qualquer hora, como ja acontece
+// com receitas e despesas. Tira do extrato o que foi pago dela, volta a fatura para aberta e desfaz o
+// saldo levado para a fatura seguinte / o parcelamento. Recusa se uma fatura seguinte que recebeu esse
+// saldo (ou as parcelas) ja foi paga — nesse caso, estorna-se aquela antes.
+var ROT_FAT={paga:'paga',parcial:'paga em parte',parcelada:'parcelada'};
+function estornarFatura(cid,mes,_ok){
   var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return;
-  var rotulos={total:'pagamento total',parcial:'pagamento parcial',parcelar:'parcelamento',adiantar:'adiantamento'};
-  var msg='Reverter '+rotulos[a.tipo]+' de '+fmt(a.valor)+' na fatura de '+cart.nome+' ('+mn(a.mes)+'), feito as '+a.quando.toLocaleTimeString('pt-BR')+'. Confirma?';
-  if(!_ok){ confirmar(msg,{ok:'Reverter',perigo:true}).then(function(ok){ if(ok) reverterUltimaFatura(cid,true); }); return; }
-
-  if(a.tipo==='parcelar'){ var pf0=d.parcelamentosFatura.find(function(p){ return p.id===a.parcId; }); if(pf0&&(pf0.parcelas||[]).some(function(p){ return p.status!=='pendente'; })){ toast('Ja existe parcela paga desse parcelamento, nao e possivel reverter automaticamente.','r'); return; } }
-  removeEx(a.exId);
-  if(a.fatStatusAntes===undefined) delete cart.fatStatus[a.mes]; else cart.fatStatus[a.mes]=a.fatStatusAntes;
-
-  if(a.tipo==='total'){
-    (a.despesasTocadas||[]).forEach(function(t){
-      var x=d.despesas.find(function(y){ return y.id===t.despId; }); if(!x||!x.pagamentos) return;
-      if(t.prevPag===null) delete x.pagamentos[a.mes]; else x.pagamentos[a.mes]=t.prevPag;
-    });
-  } else if(a.tipo==='parcial'){
-    if(a.ajusteId) d.ajustesFatura=d.ajustesFatura.filter(function(aj){ return aj.id!==a.ajusteId; });
-  } else if(a.tipo==='parcelar'){
-    var pf=d.parcelamentosFatura.find(function(p){ return p.id===a.parcId; });
-    if(pf&&(pf.parcelas||[]).some(function(p){ return p.status!=='pendente'; })){
-      toast('Ja existe parcela paga desse parcelamento, nao e possivel reverter automaticamente.','r');
-      return;
-    }
-    d.parcelamentosFatura=d.parcelamentosFatura.filter(function(p){ return p.id!==a.parcId; });
-  } else if(a.tipo==='adiantar'){
-    d.adiantamentosFatura=d.adiantamentosFatura.filter(function(ad){ return ad.id!==a.adiantId; });
+  var st=statusFat(cart,mes); if(st==='aberta') return;
+  var ajustes=(d.ajustesFatura||[]).filter(function(a){ return a.cartaoId===cid&&a.origemMes===mes; });
+  var parcs=(d.parcelamentosFatura||[]).filter(function(p){ return p.cartaoId===cid&&p.origemMes===mes; });
+  var depende=[]; ajustes.forEach(function(a){ depende.push(a.destinoMes); }); parcs.forEach(function(p){ (p.parcelas||[]).forEach(function(pa){ depende.push(pa.mes); }); });
+  var fechadas=depende.filter(function(m,i){ return depende.indexOf(m)===i&&statusFat(cart,m)!=='aberta'; }).sort();
+  if(fechadas.length){ aviso('Não dá para estornar a fatura de '+mn(mes)+' do '+cart.nome+': '+(ajustes.length?'o saldo que ficou dela':'as parcelas dela')+' já entrou na fatura de '+fechadas.map(mn).join(', ')+', que já foi paga.\n\nEstorne primeiro '+(fechadas.length>1?'essas faturas':'essa fatura')+'.'); return; }
+  var lancs=lancamentosDaFatura(cart,mes);
+  if(!_ok){
+    var msg='Estornar o pagamento da fatura de '+mn(mes)+' do '+cart.nome+' ('+(ROT_FAT[st]||st)+')?\n\n';
+    msg+=lancs.length?('Sai do extrato e o valor volta para a conta: '+lancs.map(function(e){ return e.data+' '+fmt(-e.valor)+' ('+(e.contaNome||'-')+')'; }).join(', ')+'.'):'Não achei o lançamento desse pagamento no extrato — só a situação da fatura volta para aberta.';
+    if(ajustes.length) msg+='\n\nO saldo de '+fmt(ajustes.reduce(function(a,x){ return a+x.valorFinal; },0))+' levado para a fatura de '+mn(ajustes[0].destinoMes)+' também sai de lá.';
+    if(parcs.length) msg+='\n\nO parcelamento desta fatura ('+(parcs[0].parcelas||[]).length+'x) é desfeito.';
+    msg+='\n\nA fatura volta a ficar aberta.';
+    confirmar(msg,{ok:'Estornar',perigo:true}).then(function(ok){ if(ok) estornarFatura(cid,mes,true); }); return;
   }
-
-  ultimaAcaoFatura=null;
-  rCart(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
-  toast('Acao revertida','a');
+  if(D().cartoes.indexOf(cart)<0||statusFat(cart,mes)!==st){ toast('Os dados mudaram enquanto a confirmação estava aberta — nada foi estornado','a'); return; }
+  // cartao antigo (fatura nomeada pelo vencimento): sem esta trava, estornar todas as faturas pagas dele
+  // apagaria o historico e o app passaria a nomear as faturas pelo fechamento (Neon/C6 mudariam de mes)
+  if(cart.mesRef==='venc') cart.mesRefFixo=true;
+  d.extrato=d.extrato.filter(function(e){ return lancs.indexOf(e)<0; });
+  d.ajustesFatura=d.ajustesFatura.filter(function(a){ return ajustes.indexOf(a)<0; });
+  d.parcelamentosFatura=d.parcelamentosFatura.filter(function(p){ return parcs.indexOf(p)<0; });
+  d.despesas.forEach(function(x){ if(x.via==='cartao'&&x.qual===cid&&x.pagamentos&&x.pagamentos[mes]&&x.pagamentos[mes].viaFatura) delete x.pagamentos[mes]; });
+  delete cart.fatStatus[mes]; if(cart.fatExIds) delete cart.fatExIds[mes];
+  toast('Pagamento da fatura estornado','a');
+  rCart(); rLanc(); rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
+  syncToSheets();
+}
+// Adiantamentos de uma fatura ainda aberta (os novos guardam o id do lancamento; os antigos sao achados pelo texto)
+function lancamentoDoAdiantamento(a,cart,usados){
+  var ex=D().extrato, e=null;
+  if(a.exId!=null) e=ex.find(function(x){ return x.id===a.exId; });
+  if(!e){ var rot='Adiant. fatura '+cart.nome+' ('+mn(a.mes)+')'; e=ex.find(function(x){ return (usados||[]).indexOf(x)<0&&x.tipo==='Adiantamento'&&x.desc===rot&&centavos(x.valor)===-centavos(a.valor); }); }
+  return e||null;
+}
+function estornarAdiantamentos(cid,mes,_ok){
+  var d=D(); var cart=d.cartoes.find(function(c){ return c.id===cid; }); if(!cart) return;
+  var ads=(d.adiantamentosFatura||[]).filter(function(a){ return a.cartaoId===cid&&a.mes===mes; }); if(!ads.length) return;
+  if(statusFat(cart,mes)!=='aberta'){ aviso('A fatura de '+mn(mes)+' do '+cart.nome+' já está '+(ROT_FAT[statusFat(cart,mes)]||statusFat(cart,mes))+'. Estorne primeiro o pagamento da fatura e depois o adiantamento.'); return; }
+  var usados=[]; var pares=ads.map(function(a){ var e=lancamentoDoAdiantamento(a,cart,usados); if(e) usados.push(e); return {a:a,e:e}; });
+  if(!_ok){ confirmar('Estornar '+(ads.length>1?'os '+ads.length+' adiantamentos':'o adiantamento')+' da fatura de '+mn(mes)+' do '+cart.nome+'?\n\n'+pares.map(function(p){ return fmt(p.a.valor)+(p.e?' — sai do extrato ('+p.e.data+', '+(p.e.contaNome||'-')+') e volta para a conta':' — lançamento não encontrado no extrato'); }).join('\n')+'\n\nO valor volta a contar na fatura.',{ok:'Estornar',perigo:true}).then(function(ok){ if(ok) estornarAdiantamentos(cid,mes,true); }); return; }
+  if(D().cartoes.indexOf(cart)<0){ toast('Os dados mudaram enquanto a confirmação estava aberta — nada foi estornado','a'); return; }
+  d.extrato=d.extrato.filter(function(x){ return usados.indexOf(x)<0; });
+  d.adiantamentosFatura=d.adiantamentosFatura.filter(function(a){ return ads.indexOf(a)<0; });
+  toast('Adiantamento estornado','a');
+  rCart(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
 }
 function marcarDespCartaoComoPatoNaFatura(cart,mes){
@@ -1759,8 +1776,9 @@ function doTransferencia(){
   if(!co||!cd) return;
   if(!saldoSuficiente(co.id,val)){ err.style.display='block'; err.textContent='Saldo insuficiente em '+co.banco+' ('+fmt(saldoConta(co.id))+').'; return; }
   err.style.display='none';
-  addEx('Saida','Transf. para '+cd.banco,-val,co.id);
-  addEx('Entrada','Transf. de '+co.banco,val,cd.id);
+  // as duas pontas guardam o id uma da outra: excluir uma no extrato exclui a outra junto
+  var idS=addEx('Saida','Transf. para '+cd.banco,-val,co.id), idE=addEx('Entrada','Transf. de '+co.banco,val,cd.id);
+  d.extrato.forEach(function(e){ if(e.id===idS) e.par=idE; else if(e.id===idE) e.par=idS; });
   el('tr-val').value=''; popTransf();
   toast('Transferencia de '+fmt(val)+' realizada','g'); el('sb-saldo').textContent=fmt(saldoTotal());
   syncToSheets();
@@ -1795,12 +1813,29 @@ function rContas(){
     ? '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:1.5rem">Sem movimentacoes neste filtro</td></tr>'
     : ex.map(function(o){ var e=o.e; var pos=e.valor>=0; return '<tr><td style="color:var(--muted)">'+e.data+'</td><td>'+esc(e.desc)+'</td><td><span class="badge n">'+esc(e.contaNome||'-')+'</span></td><td><span class="badge '+(pos?'g':'n')+'">'+e.tipo+'</span></td><td style="font-weight:700;color:var(--'+(pos?'green':'text')+')">'+(pos?'+ ':'− ')+fmt(Math.abs(e.valor))+'</td><td><button class="btn-del" onclick="delEx('+o.i+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></td></tr>'; }).join('');
 }
+// Outra ponta de uma transferencia entre contas. As novas guardam o id uma da outra (e.par); nas antigas,
+// e a linha do tipo oposto, mesmo dia, valor oposto, outra conta — a mais proxima (gravadas lado a lado).
+function parDaTransferencia(e){
+  if(!e||(e.tipo!=='Saida'&&e.tipo!=='Entrada')) return null;
+  var ex=D().extrato, oposto=e.tipo==='Saida'?'Entrada':'Saida';
+  if(e.par!=null){ var p=ex.find(function(x){ return x.id===e.par; }); if(p) return p; }
+  var i=ex.indexOf(e), cand=ex.filter(function(x){ return x!==e&&x.tipo===oposto&&x.data===e.data&&centavos(x.valor)===-centavos(e.valor)&&x.contaId!==e.contaId; });
+  cand.sort(function(a,b){ return Math.abs(ex.indexOf(a)-i)-Math.abs(ex.indexOf(b)-i); });
+  return cand[0]||null;
+}
 function delEx(idx,_ok){
   var d=D(); var it=d.extrato[idx]; if(!it) return;
-  if(!_ok){ confirmar('Excluir este lancamento do extrato?\n\n'+it.data+' — '+it.desc+' ('+it.contaNome+')\n'+fmt(it.valor)+'\n\nIsso NAO desfaz o pagamento/status relacionado, so remove o registro do extrato (ajuste de saldo).',{ok:'Excluir',perigo:true}).then(function(ok){ if(!ok) return; var j=D().extrato.indexOf(it); if(j<0){ toast('O extrato mudou enquanto a confirmação estava aberta — nada foi excluído','a'); return; } delEx(j,true); }); return; }
+  var par=parDaTransferencia(it); // transferencia: as duas pontas saem juntas (antes era preciso apagar uma por uma)
+  if(!_ok){
+    var linha=function(e){ return e.data+' — '+e.desc+' ('+(e.contaNome||'-')+') '+fmt(e.valor); };
+    var msg=par?('Esta é uma transferência entre contas. As duas pontas serão excluídas:\n\n'+linha(it)+'\n'+linha(par)+'\n\nO saldo das duas contas volta ao que era antes da transferência.')
+               :('Excluir este lancamento do extrato?\n\n'+it.data+' — '+it.desc+' ('+it.contaNome+')\n'+fmt(it.valor)+'\n\nIsso NAO desfaz o pagamento/status relacionado, so remove o registro do extrato (ajuste de saldo).');
+    confirmar(msg,{ok:par?'Excluir as duas':'Excluir',perigo:true}).then(function(ok){ if(!ok) return; var j=D().extrato.indexOf(it); if(j<0){ toast('O extrato mudou enquanto a confirmação estava aberta — nada foi excluído','a'); return; } delEx(j,true); }); return;
+  }
   d.extrato.splice(idx,1);
-  rContas(); rDash(); el('sb-saldo').textContent=fmt(saldoTotal());
-  toast('Lancamento removido do extrato','a');
+  if(par){ var k=d.extrato.indexOf(par); if(k>=0) d.extrato.splice(k,1); }
+  rContas(); rDash(); popTransf(); el('sb-saldo').textContent=fmt(saldoTotal());
+  toast(par?'Transferência excluída (as duas pontas)':'Lancamento removido do extrato','a');
   syncToSheets();
 }
 
@@ -1886,7 +1921,7 @@ function rCart(){
     var dias=mesVencC<MA?-1:mesVencC>MA?99:c.venc-hoje.getDate();
     var ccCor=paga?'cc-verde':st==='parcelada'?'cc-parcelado':st==='parcial'?'cc-parcial':!fLiq?'':dias<0||dias===0?'cc-vermelho':dias<=3?'cc-amarelo':'';
     var fatValCor=ccCor==='cc-verde'?'var(--green)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-vermelho'?'var(--red)':cor;
-    var adiantBadge=adiant>0?'<div style="font-size:11px;color:var(--muted);margin-top:2px">Total: '+fmt(fBruta)+' | Adiantado: <span style="color:var(--green)">'+fmt(adiant)+'</span></div>':'';
+    var adiantBadge=adiant>0?'<div style="font-size:11px;color:var(--muted);margin-top:2px">Total: '+fmt(fBruta)+' | Adiantado: <span style="color:var(--green)">'+fmt(adiant)+'</span>'+(statusFat(c,mes)==='aberta'?' <button class="ag-link" onclick="event.stopPropagation();estornarAdiantamentos('+c.id+',\''+mes+'\')">estornar</button>':'')+'</div>':'';
     var html='<div class="cc-card '+ccCor+'" style="cursor:pointer" onclick="selecionarCartaoLanc('+c.id+')">';
     html+='<div class="cc-actions" onclick="event.stopPropagation()"><button class="btn-ed" onclick="edCart('+c.id+')" aria-label="Editar"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delCart('+c.id+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></div>';
     html+='<div class="cc-name">'+esc(c.nome)+'</div><div class="cc-band">'+c.band+(mes!==MA?' <span style="color:var(--muted)">— '+mn(mes)+'</span>':'')+'</div>';
@@ -1903,7 +1938,7 @@ function rCart(){
     html+='<div class="cc-lim">'+pct.toFixed(0)+'% comprometido de '+fmt(c.lim)+' | Fatura atual: '+fmt(fLiq)+'</div>';
     html+='<div class="cc-status-row"><span class="cc-status-lbl" style="color:'+(paga?'var(--green)':ccCor==='cc-vermelho'?'var(--red)':ccCor==='cc-amarelo'?'var(--amber)':ccCor==='cc-parcelado'?'var(--amber)':ccCor==='cc-parcial'?'var(--amber)':'var(--muted)')+'">'+st.toUpperCase()+'</span>';
     var fatFechada=st==='parcelada'||st==='parcial'; if(!paga&&!fatFechada&&fLiq>0) html+='<div style="display:flex;gap:4px"><button class="btn-pay" style="font-size:11px;padding:2px 6px" data-cid="'+c.id+'" data-fmes="'+mes+'" onclick="abrirModalFatura(this)">Pagar</button><button class="btn-sm" style="font-size:11px;padding:2px 6px" data-cid="'+c.id+'" data-fmes="'+mes+'" onclick="abrirAdianto(this)">Adiantar</button></div>'; if(!paga&&fatFechada) html+='<span style="font-size:11px;color:var(--muted)">Fatura fechada</span>';
-    if(ultimaAcaoFatura&&ultimaAcaoFatura.cid===c.id&&ultimaAcaoFatura.mes===mes) html+='<button class="btn-del" style="font-size:11px;padding:2px 6px" onclick="event.stopPropagation();reverterUltimaFatura('+c.id+')"><i class="ti ti-arrow-back-up"></i> Desfazer</button>';
+    if(st==='paga'||st==='parcial'||st==='parcelada') html+='<button class="btn-ed" style="font-size:11px;padding:2px 6px;width:auto" title="Estornar o pagamento desta fatura" onclick="event.stopPropagation();estornarFatura('+c.id+',\''+mes+'\')"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> Estornar</button>';
     html+='</div></div>';
     return html;
   }).join('');
@@ -2112,6 +2147,9 @@ function fixarPagamentosFatura(cart){
     cart.fatExIds=cart.fatExIds||{}; var l=(cart.fatExIds[mes]=cart.fatExIds[mes]||[]);
     var id=idDoLancamento(e); if(l.indexOf(id)<0) l.push(id);
   });
+  // adiantamentos antigos tambem sao achados pelo nome do cartao: liga pelo id antes de renomear
+  var usados=[];
+  (D().adiantamentosFatura||[]).forEach(function(a){ if(a.cartaoId!==cart.id) return; var e=lancamentoDoAdiantamento(a,cart,usados); if(e){ usados.push(e); a.exId=idDoLancamento(e); } });
 }
 function fixarLancamentosDoItem(item,tipo,sinal){
   Object.keys(item.pagamentos||{}).forEach(function(mes){
@@ -2417,7 +2455,7 @@ function restaurarBackupArquivo(input){
     var deOutro=parsed&&parsed.usuario&&parsed.usuario!==CU;
     confirmar((deOutro?'ATENCAO: este backup e do usuario "'+parsed.usuario+'", nao seu ("'+CU+'"). Os dados dele vao ocupar o lugar dos seus.\n\n':'')+'Isso vai SUBSTITUIR todos os seus dados atuais pelos dados do backup de '+dataBkp+'. Essa acao nao pode ser desfeita. Deseja continuar?',{ok:deOutro?'Substituir pelos dados de '+parsed.usuario:'Substituir',perigo:true}).then(function(ok){
     if(!ok){ input.value=''; return; }
-    ultimaAcaoFatura=null; fatCtx=null;
+    fatCtx=null;
     dados.ajustesFatura=dados.ajustesFatura||[];
     dados.parcelamentosFatura=dados.parcelamentosFatura||[];
     dados.adiantamentosFatura=dados.adiantamentosFatura||[];
