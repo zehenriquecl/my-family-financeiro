@@ -1998,6 +1998,12 @@ function rRel(){
   var tD=dm.reduce(function(a,x){ return a+valorPagoMes(x,mes); },0);
   var tDPrev=dm.reduce(function(a,x){ return a+valorDespMes(x); },0);
   var tF=totFat(mes); var sal=saldoTotal();
+  // Resumo com dois numeros (opcao C escolhida pelo usuario): o que ja aconteceu e o que e do mes.
+  // Antes "Resultado realizado" = recebido - pago - TODAS as faturas do mes (pagas ou nao): nao era
+  // nem realizado nem previsto (nov/2026: 1.416,32; realizado 4.721,46; previsto 1.908,72).
+  var fBruta=d.cartoes.reduce(function(a,c){ return a+getFatBruta(c.id,mes); },0);
+  var fPaga=d.cartoes.reduce(function(a,c){ return a+pagoFatura(c,mes)+getAdiantado(c.id,mes); },0);
+  var realizado=tR-tD-fPaga, previsto=tRPrev-tDPrev-fBruta; // previsto = mesmo "Resultado do mes (previsto)" do Dashboard
   var cats=gastosPorCategoria(mes);
   el('rel-content').innerHTML=
     '<div class="rel-box"><div class="rel-st">Receitas — '+mn(mes)+'</div>'+rm.map(function(r){ var pag=r.pagamentos[mes]; return '<div class="rel-row"><span>'+esc(r.desc)+'</span><div style="display:flex;gap:8px;align-items:center"><span style="color:var(--muted);font-size:11px">prev. '+fmt(r.valor)+'</span><span style="font-weight:700;color:var(--'+(pag&&pag.pago?'green':'amber')+')">'+( pag&&pag.pago?fmt(pag.valorRec||r.valor):'pendente')+'</span></div></div>'; }).join('')+'<div class="rel-total"><span>Recebido / Previsto</span><span style="color:var(--green)">'+fmt(tR)+' / '+fmt(tRPrev)+'</span></div></div>'+
@@ -2005,7 +2011,13 @@ function rRel(){
     '<div class="rel-box"><div class="rel-st">Por categoria (contas + cartão)</div>'+Object.keys(cats).sort(function(a,b){ return cats[b]-cats[a]; }).map(function(k){ return '<div class="rel-row"><span>'+esc(k)+'</span><span style="font-weight:700">'+fmt(cats[k])+'</span></div>'; }).join('')+'</div>'+
     '<div class="rel-box"><div class="rel-st">Faturas — '+mn(mes)+'</div>'+d.cartoes.map(function(c){ var f=getFat(c.id,mes); var st=statusFat(c,mes); return f>0||st!=='aberta'?'<div class="rel-row"><span>'+esc(c.nome)+'</span><div style="display:flex;gap:8px;align-items:center">'+badgeFat(st)+'<span style="font-weight:700;color:var(--purple)">'+fmt(f)+'</span></div></div>':''; }).join('')+'<div class="rel-total"><span>Total</span><span style="color:var(--purple)">'+fmt(tF)+'</span></div></div>'+
     '<div class="rel-box"><div class="rel-st">Contas</div>'+d.contas.map(function(c){ var s=saldoConta(c.id); return '<div class="rel-row"><span>'+esc(c.banco)+'</span><span style="font-weight:700;color:var(--'+(s>=0?'green':'red')+')">'+fmt(s)+'</span></div>'; }).join('')+'<div class="rel-total"><span>Saldo total</span><span style="color:var(--'+(sal>=0?'green':'red')+')">'+fmt(sal)+'</span></div></div>'+
-    '<div class="rel-box"><div class="rel-st">Resumo</div><div class="rel-row"><span>Receitas recebidas</span><span style="font-weight:700;color:var(--green)">'+fmt(tR)+'</span></div><div class="rel-row"><span>Despesas pagas</span><span style="font-weight:700">'+fmt(tD)+'</span></div><div class="rel-row"><span>Faturas</span><span style="font-weight:700;color:var(--purple)">'+fmt(tF)+'</span></div><div class="rel-total"><span>Resultado realizado</span><span style="color:var(--'+(tR-tD-tF>=0?'green':'red')+')">'+fmt(tR-tD-tF)+'</span></div></div>';
+    '<div class="rel-box"><div class="rel-st">Resumo</div>'
+    +'<div class="rel-row"><span>Receitas</span><span><span style="font-weight:700;color:var(--green)">'+fmt(tR)+'</span> <span style="color:var(--muted);font-size:11px">recebido de '+fmt(tRPrev)+'</span></span></div>'
+    +'<div class="rel-row"><span>Despesas (conta)</span><span><span style="font-weight:700">'+fmt(tD)+'</span> <span style="color:var(--muted);font-size:11px">pago de '+fmt(tDPrev)+'</span></span></div>'
+    +'<div class="rel-row"><span>Faturas do mês</span><span><span style="font-weight:700;color:var(--purple)">'+fmt(fPaga)+'</span> <span style="color:var(--muted);font-size:11px">pago de '+fmt(fBruta)+'</span></span></div>'
+    +'<div class="rel-total"><span>Realizado até agora</span><span style="color:var(--'+(realizado>=0?'green':'red')+')">'+fmt(realizado)+'</span></div>'
+    +'<div class="rel-total" style="border-top:0;margin-top:0"><span>Previsto para o mês</span><span style="color:var(--'+(previsto>=0?'green':'red')+')">'+fmt(previsto)+'</span></div>'
+    +'<p style="font-size:11px;color:var(--muted);margin-top:8px">Realizado: só o que já entrou e já saiu (das faturas, o que foi pago delas). Previsto: tudo o que é deste mês, recebido/pago ou não.</p></div>';
 }
 function printRel(){
   var content=el('rel-content').innerHTML;
