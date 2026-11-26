@@ -664,7 +664,7 @@ function enviarAgora(){
 function conflitoDeVersao(){
   _sujo=false; marcarStatusSync('erro');
   aviso('Seus dados foram alterados em outro aparelho ou aba depois que esta tela foi aberta.\n\nPara nao apagar o que foi feito la, vou carregar a versao mais recente agora.\nConfira se a sua ultima alteracao aparece; se nao aparecer, faca-a de novo.');
-  recarregarDoServidor();
+  recarregarDoServidor(true);
 }
 function sessaoExpirada(){
   marcarStatusSync('erro');
@@ -672,12 +672,19 @@ function sessaoExpirada(){
   _sujo=false; doLogout();
 }
 // Busca a versao atual do servidor e redesenha tudo (sem enviar nada).
-function recarregarDoServidor(){
+function recarregarDoServidor(emConflito){
   var user=CU; if(!user) return Promise.resolve();
   return apiComRetry('getAll').then(function(res){
     if(CU!==user) return;
+    // Janela aberta e "Desfazer" apontam para objetos/ids da versao antiga: sao descartados. Antes, a
+    // alteracao feita na janela ia para um objeto que nao existe mais (e se perdia calada), e o
+    // Desfazer podia apagar outro lancamento que tivesse o mesmo id na versao nova.
+    var janela=!!(el('modal')&&el('modal').classList.contains('open'));
+    if(janela) closeModal();
+    fatCtx=null; ultimaAcaoFatura=null;
     DB[user]=normalizarDB(res.db); DB_REV=res.rev||0; _sujo=false; SYNC_OK=true;
     marcarStatusSync('ok'); initSelects(); renderTudo();
+    if(janela&&!emConflito) aviso('Seus dados foram atualizados com alteracoes feitas em outro aparelho, e a janela que estava aberta foi fechada para nao gravar em cima de dados antigos.\n\nAbra de novo e refaca a alteracao.');
   }).catch(function(e){ console.error('recarregar:',e); });
 }
 // Ao voltar pra aba/app: se outro aparelho salvou nesse meio tempo e aqui nao ha nada pendente,
@@ -696,7 +703,10 @@ function marcarStatusSync(st){
 window.addEventListener('beforeunload',function(e){
   if(!CU||!SYNC_OK||(!_sujo&&!_enviando)) return;
   if(_sujo&&!_enviando){
-    try{ navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',token:TOKEN,db:DB[CU],baseRev:DB_REV})],{type:'text/plain;charset=UTF-8'})); _sujo=false; return; }catch(err){}
+    // sendBeacon so aceita ate 64 KB por envio: acima disso devolve false e NAO envia nada. Antes o
+    // retorno era ignorado e a ultima alteracao se perdia calada (os dados do jose ja estao em ~63 KB).
+    try{ if(navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',token:TOKEN,db:DB[CU],baseRev:DB_REV})],{type:'text/plain;charset=UTF-8'}))){ _sujo=false; return; } }catch(err){}
+    enviarAgora(); // nao coube no envio de saida: ja comeca a salvar e pede pra pessoa esperar
   }
   e.preventDefault(); e.returnValue='Ainda ha alteracoes sendo salvas.'; // pede confirmacao antes de fechar
 });
@@ -743,8 +753,11 @@ function atualizarDataHoje(){
   var novoMA=n.getFullYear()+'-'+pad2(n.getMonth()+1);
   if(filtroRecMes===MA) filtroRecMes=novoMA;
   if(filtroDespMes===MA) filtroDespMes=novoMA;
+  var virouMes=novoMA!==MA;
   hoje=n; MA=novoMA;
-  if(CU&&DB[CU]) renderTudo();
+  // virada de mes com o app aberto: as listas de meses das telas ainda apontavam o mes anterior
+  // (e a tela voltava pra ele); refaz as listas ja com o mes novo selecionado
+  if(CU&&DB[CU]){ if(virouMes) initSelects(); renderTudo(); }
 }
 var MA=hoje.getFullYear()+'-'+pad2(hoje.getMonth()+1);
 var filtroRecMes=MA, filtroDespMes=MA;
@@ -781,7 +794,7 @@ function modoFat(c){
   return c.mesRef;
 }
 function mesAnterior(mes,n){ var p=mes.split('-'); var d=new Date(parseInt(p[0]),parseInt(p[1])-1-n,1); return d.getFullYear()+'-'+pad2(d.getMonth()+1); }
-function toast(msg,cls){ var t=el('toast'); if(!t) return; t.textContent=msg; t.className='toast show '+(cls||'g'); setTimeout(function(){ t.className='toast'; },3200); }
+function toast(msg,cls){ var t=el('toast'); if(!t) return; t.textContent=msg; t.className='toast show '+(cls||'g'); clearTimeout(toast._t); toast._t=setTimeout(function(){ t.className='toast'; },3200); } // um aviso novo nao some antes do tempo por causa do anterior
 function openForm(id){ var e=el(id); if(e) e.classList.add('open'); }
 function closeForm(id){ var e=el(id); if(e) e.classList.remove('open'); }
 function closeModal(){ el('modal').classList.remove('open'); editCtx=null; }
@@ -1028,14 +1041,12 @@ function creditoComprometido(cid,mesRef){
     }
   });
 
+  // parcelas futuras das despesas parceladas no cartao, pela mesma regra das faturas (ocorrDespCartao):
+  // antes contava tambem parcelas de meses excluidos ("so este mes") ou de despesa ja encerrada
   d.despesas.filter(function(x){ return x.via==='cartao'&&x.qual===cid&&x.recor==='Parcelado'; }).forEach(function(x){
-    var np=parseInt(x.parcelas)||1; var vp=x.valor/np;
-    var mc=x.inicioMes||x.mesCad||MA; var pc=mc.split('-'); var pfm=parseInt(pc[1])-1; var pfa=parseInt(pc[0]);
-    pfm+=shiftFaturaCartao(cart,x.diaVenc||1); while(pfm>11){ pfm-=12; pfa++; }
-    for(var i=0;i<np;i++){
-      var fm=pfm+i; var fy=pfa+Math.floor(fm/12); fm=fm%12;
-      if(fy>y||(fy===y&&fm>m-1)) tot+=vp;
-    }
+    var np=parseInt(x.parcelas)||1;
+    var iniFat=mesPosterior(x.inicioMes||x.mesCad||MA,shiftFaturaCartao(cart,x.diaVenc||1));
+    for(var i=0;i<np;i++){ var fmI=mesPosterior(iniFat,i); if(fmI>mes){ var oc=ocorrDespCartao(x,cart,fmI); if(oc) tot+=oc.valor; } }
   });
 
   (d.parcelamentosFatura||[]).filter(function(pf){ return pf.cartaoId===cid; }).forEach(function(pf){
@@ -1084,11 +1095,24 @@ function doLogin(){
     el('login-err').style.display='block';
   });
 }
-function doLogout(){
-  if(CU&&SYNC_OK&&_sujo&&!_enviando){ try{ navigator.sendBeacon(SCRIPT_URL,new Blob([JSON.stringify({action:'saveAll',token:TOKEN,db:DB[CU],baseRev:DB_REV})],{type:'text/plain;charset=UTF-8'})); }catch(e){} }
+function doLogout(_forcar){
+  // "Sair" com alteracao ainda nao gravada: espera o salvamento terminar. Antes usava o envio de
+  // saida do navegador (sendBeacon), que recusa mais de 64 KB e perdia a alteracao sem avisar.
+  if(!_forcar&&CU&&SYNC_OK&&(_sujo||_enviando)){
+    var t0=Date.now(), quem=CU; enviarAgora(); toast('Salvando antes de sair...','a');
+    (function esperar(){
+      if(CU!==quem) return;
+      if(!_sujo&&!_enviando) return doLogout(true);
+      if(Date.now()-t0>10000){ confirmar('Nao consegui salvar a ultima alteracao (sem conexao?).\n\nSe sair agora, ela sera perdida. Sair mesmo assim?',{ok:'Sair sem salvar',perigo:true}).then(function(ok){ if(ok&&CU===quem) doLogout(true); }); return; }
+      setTimeout(esperar,300);
+    })();
+    return;
+  }
   clearTimeout(_syncTimer); clearTimeout(_retryTimer);
   if(CU) delete DB[CU];
   CU=null; TOKEN=null; SYNC_OK=false; _sujo=false; DB_REV=0; USERS={};
+  // o "Desfazer" e as janelas abertas de um usuario nunca podem valer para o proximo que entrar
+  ultimaAcaoFatura=null; fatCtx=null; editCtx=null; el('modal').classList.remove('open');
   document.body.classList.remove('logado');
   el('login-screen').style.display='flex'; el('app').classList.remove('visible');
   el('l-user').value=''; el('l-pass').value='';
@@ -1150,7 +1174,7 @@ function popDespQual(){
 function popTransf(){
   if(!CU) return;
   var d=D();
-  var opts=d.contas.map(function(c){ return '<option value="'+c.id+'">'+c.banco+' ('+fmt(saldoConta(c.id))+')</option>'; }).join('');
+  var opts=d.contas.map(function(c){ return '<option value="'+c.id+'">'+esc(c.banco)+' ('+fmt(saldoConta(c.id))+')</option>'; }).join('');
   var o=el('tr-origem'); var dt=el('tr-destino'); if(o) o.innerHTML=opts; if(dt) dt.innerHTML=opts;
 }
 function toggleDespExtra(){ var pr=el('fd-parc-row'); if(pr) pr.style.display=el('fd-recor').value==='Parcelado'?'grid':'none'; }
@@ -1451,9 +1475,9 @@ function abrirModalRec(btn){
     var cid=parseInt(el('mr-conta').value);
     if(!r.pagamentos[rmes]) r.pagamentos[rmes]={valorRec:0};
     var pag=r.pagamentos[rmes];
-    pag.valorRec=(pag.valorRec||0)+val;
+    pag.valorRec=(centavos(pag.valorRec)+centavos(val))/100; // soma e compara em centavos (sem resto de ponto flutuante)
     pag.dataRec=hojeISO();
-    if(pag.valorRec>=r.valor){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
+    if(centavos(pag.valorRec)>=centavos(r.valor)){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
     var ct=d.contas.find(function(c){ return c.id===cid; });
     if(ct){ pag.exIds=(pag.exIds||[]).concat(addEx('Receita',r.desc+' ('+mn(rmes)+')',val,cid)); }
     toast(r.desc+' — '+fmt(val)+' recebido','g');
@@ -1486,9 +1510,10 @@ function abrirModalDesp(btn){
     }
     if(!x.pagamentos[dmes]) x.pagamentos[dmes]={valorPago:0};
     var pag=x.pagamentos[dmes];
-    pag.valorPago=(pag.valorPago||0)+val;
+    pag.valorPago=(centavos(pag.valorPago)+centavos(val))/100;
     pag.dataPag=hojeISO();
-    if(pag.valorPago>=valorMes){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
+    // em centavos: parcela de 100 em 3x vale 33,333... — pagar os 33,33 sugeridos deixava "Parcial" pra sempre
+    if(centavos(pag.valorPago)>=centavos(valorMes)){ pag.pago=true; pag.parcial=false; } else { pag.parcial=true; pag.pago=false; }
     if(contaOk) pag.exIds=(pag.exIds||[]).concat(addEx('Despesa',x.desc+' ('+mn(dmes)+')',-val,x.qual));
     toast(x.desc+' — '+fmt(val)+' pago','g');
     rDesp(); rDash(); rHoje(); el('sb-saldo').textContent=fmt(saldoTotal());
@@ -1510,7 +1535,7 @@ function abrirModalFatura(btnOrCid, mesParam){
   var adiant=getAdiantado(cid,mes);
   var fLiq=Math.max(0,fBruta-adiant);
   fatCtx={cid:cid,mes:mes,fBruta:fBruta,adiant:adiant,fLiq:fLiq,cart:cart};
-  var optContas=d.contas.map(function(c){ return '<option value="'+c.id+'">'+c.banco+' ('+fmt(saldoConta(c.id))+')</option>'; }).join('');
+  var optContas=d.contas.map(function(c){ return '<option value="'+c.id+'">'+esc(c.banco)+' ('+fmt(saldoConta(c.id))+')</option>'; }).join('');
   el('modal-ttl').textContent='Fatura '+cart.nome+' — '+mn(mes);
   el('modal-body').innerHTML=
     '<div style="background:var(--card2);border-radius:8px;padding:.85rem 1rem;margin-bottom:1rem;font-size:13px">'+(adiant>0?'<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted)">Total bruto</span><span>'+fmt(fBruta)+'</span></div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted)">Adiantado</span><span style="color:var(--green)">-'+fmt(adiant)+'</span></div>':'')+'<div style="display:flex;justify-content:space-between;font-weight:700;font-size:15px"><span>Saldo a pagar</span><span style="color:var(--purple)">'+fmt(fLiq)+'</span></div></div>'+
@@ -1598,6 +1623,7 @@ function confirmarFatura(){
   } else if(tipo==='parcial'){
     var pago=maskedVal('fat-pago-agora');
     var prox=maskedVal('fat-prox');
+    if(!(pago>0)&&!(prox>0)){ toast('Informe quanto paga agora e/ou quanto vai para a próxima fatura','r'); return false; }
     var exId=null;
     if(ct&&pago>0){
       if(!saldoSuficiente(cid,pago)){
@@ -1640,6 +1666,7 @@ function confirmarFatura(){
 
   } else if(tipo==='adiantar'){
     var adiant=maskedVal('fat-adiant');
+    if(!(adiant>0)){ toast('Informe o valor do adiantamento','r'); return false; } // antes gravava adiantamento de R$ 0,00
     var exId=null;
     if(ct&&adiant>0){
       if(!saldoSuficiente(cid,adiant)){
@@ -1725,13 +1752,13 @@ function rContas(){
   var d=D();
   el('contas-grid').innerHTML=d.contas.map(function(c){
     var sal=saldoConta(c.id);
-    return '<div class="conta-card"><div style="display:flex;justify-content:space-between;align-items:start"><div style="font-size:14px;font-weight:700">'+c.banco+'</div><div class="btn-group"><button class="btn-ed" onclick="edConta('+c.id+')" aria-label="Editar"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delConta('+c.id+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></div></div><div style="font-size:24px;font-weight:800;margin:6px 0 2px;letter-spacing:-.5px;color:var(--'+(sal>=0?'green':'red')+')">'+ fmt(sal)+'</div><div style="font-size:11px;color:var(--muted)">Saldo inicial: '+fmt(c.saldoInicial)+'</div></div>';
+    return '<div class="conta-card"><div style="display:flex;justify-content:space-between;align-items:start"><div style="font-size:14px;font-weight:700">'+esc(c.banco)+'</div><div class="btn-group"><button class="btn-ed" onclick="edConta('+c.id+')" aria-label="Editar"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delConta('+c.id+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></div></div><div style="font-size:24px;font-weight:800;margin:6px 0 2px;letter-spacing:-.5px;color:var(--'+(sal>=0?'green':'red')+')">'+ fmt(sal)+'</div><div style="font-size:11px;color:var(--muted)">Saldo inicial: '+fmt(c.saldoInicial)+'</div></div>';
   }).join('');
   // filtros do extrato
   var extContaSel=el('ext-conta-sel');
   if(extContaSel){
     var selVal=extContaSel.value;
-    extContaSel.innerHTML='<option value="">Todas as contas</option>'+d.contas.map(function(ct){ return '<option value="'+ct.id+'">'+ct.banco+'</option>'; }).join('');
+    extContaSel.innerHTML='<option value="">Todas as contas</option>'+d.contas.map(function(ct){ return '<option value="'+ct.id+'">'+esc(ct.banco)+'</option>'; }).join('');
     if(selVal) extContaSel.value=selVal;
   }
   var extMesSel=el('ext-mes-sel');
@@ -1779,8 +1806,8 @@ function rRec(){
         var btn='';
         if(!pag||!pag.pago) btn='<button class="btn-ok" data-rid="'+r.id+'" data-rmes="'+mes+'" onclick="abrirModalRec(this)">'+(pag&&pag.parcial?'Complementar':'Receber')+'</button>';
         var row='<tr>';
-        row+='<td>'+esc(r.desc)+'</td><td><span class="badge n">'+esc(r.tipo)+'</span></td><td style="color:var(--muted)">'+r.forma+'</td>';
-        row+='<td><span class="badge n">'+(ct?ct.banco:'-')+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
+        row+='<td>'+esc(r.desc)+'</td><td><span class="badge n">'+esc(r.tipo)+'</span></td><td style="color:var(--muted)">'+esc(r.forma)+'</td>';
+        row+='<td><span class="badge n">'+esc(ct?ct.banco:'-')+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
         row+='<td style="font-weight:700">'+fmt(r.valor)+'</td>';
         row+='<td style="font-weight:700;color:var(--green)">'+(pag&&(pag.valorRec||0)>0?fmt(pag.valorRec):'—')+'</td>';
         row+='<td>'+badgeRec(st)+'</td>';
@@ -1821,7 +1848,7 @@ function rDesp(){
         else { btnAcao='<button class="btn-pay" data-did="'+x.id+'" data-dmes="'+mes+'" onclick="abrirModalDesp(this)">'+(pag&&pag.parcial?'Complementar':'Pagar')+'</button>'; }
         var row='<tr>';
         row+='<td>'+esc(x.desc)+'</td><td><span class="badge n">'+esc(x.cat)+'</span></td><td style="color:var(--muted)">'+dataExib+'</td>';
-        row+='<td><span class="badge n">'+recorLbl+'</span></td><td style="font-size:12px;color:var(--muted)">'+viaLbl+'</td>';
+        row+='<td><span class="badge n">'+recorLbl+'</span></td><td style="font-size:12px;color:var(--muted)">'+esc(viaLbl)+'</td>';
         row+='<td style="font-weight:700;color:var(--'+(st==='atrasado'?'red':'text')+')">'+fmt(valorExib)+'</td><td>'+(st==='fatura'?'<span class="badge p" title="Paga junto com a fatura do cartao">Na fatura '+mn(mesFaturaDaDesp(x,viaObj,mes)).split(' ')[0]+'</span>':st==='pago'&&x.via==='cartao'?'<span class="badge g">Paga na fatura</span>':badgeDesp(st))+'</td>';
         if(pag&&(pag.pago||pag.parcial)&&!pag.viaFatura) btnAcao+='<button class="btn-ed" title="Estornar pagamento" onclick="estornarDesp('+x.id+',\''+mes+'\')" aria-label="Estornar pagamento"><i class="ti ti-arrow-back-up"></i></button>';
         row+='<td><div class="btn-group">'+btnAcao+'<button class="btn-ed" onclick="edDesp('+x.id+')" aria-label="Editar"><i class="ti ti-edit"></i></button><button class="btn-del" onclick="delDesp('+x.id+')" aria-label="Excluir"><i class="ti ti-trash"></i></button></div></td></tr>';
@@ -1863,11 +1890,11 @@ function rCart(){
     return html;
   }).join('');
 }
+// Botao "Adiantar" do cartao: abre a janela da fatura JA no modo Adiantar. Antes abria em "Total"
+// com o valor cheio da fatura — quem confirmasse sem reparar pagava a fatura inteira.
 function abrirAdianto(btn){
-  btn.setAttribute('data-tipo','adiantar');
-  // reusar abrirModalFatura mas pré-selecionar adiantar
-  var cid=parseInt(btn.getAttribute('data-cid')); var mes=btn.getAttribute('data-fmes')||MA;
-  abrirModalFatura(btn.getAttribute?btn:cid,mes);
+  abrirModalFatura(btn);
+  var b=el('modal-body').querySelector('[data-tipo="adiantar"]'); if(b) selecionarTipoFat(b);
 }
 function selecionarCartaoLanc(cid){
   var lfc=el('lfc'); if(lfc) lfc.value=cid;
@@ -1965,7 +1992,8 @@ function rRel(){
 function printRel(){
   var content=el('rel-content').innerHTML;
   var w=window.open('','_blank');
-  var parts=['<!DOCTYPE html>','<html>','<head>','<meta charset="UTF-8">','<title>Relatorio<\/title>','<style>','body{font-family:system-ui,sans-serif;padding:2rem;max-width:720px;margin:0 auto}','.rel-box{margin-bottom:1.5rem;border:1px solid #ddd;border-radius:8px;padding:1rem}','.rel-st{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem;border-bottom:1px solid #eee;padding-bottom:.5rem;font-weight:600}','.rel-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #f5f5f5}','.rel-total{display:flex;justify-content:space-between;padding:8px 0 0;font-weight:700;font-size:14px;border-top:1px solid #ddd;margin-top:4px}','.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}','<\/style>','<\/head>','<body>','<h2 style="margin-bottom:1rem">Relatorio — '+USERS[CU].nome+'<\/h2>',content,'<\/body>','<\/html>'];
+  if(!w){ toast('O navegador bloqueou a janela de impressão — permita pop-ups para este site','r'); return; }
+  var parts=['<!DOCTYPE html>','<html>','<head>','<meta charset="UTF-8">','<title>Relatorio<\/title>','<style>','body{font-family:system-ui,sans-serif;padding:2rem;max-width:720px;margin:0 auto}','.rel-box{margin-bottom:1.5rem;border:1px solid #ddd;border-radius:8px;padding:1rem}','.rel-st{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem;border-bottom:1px solid #eee;padding-bottom:.5rem;font-weight:600}','.rel-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #f5f5f5}','.rel-total{display:flex;justify-content:space-between;padding:8px 0 0;font-weight:700;font-size:14px;border-top:1px solid #ddd;margin-top:4px}','.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}','<\/style>','<\/head>','<body>','<h2 style="margin-bottom:1rem">Relatorio — '+esc(USERS[CU].nome)+'<\/h2>',content,'<\/body>','<\/html>'];
   w.document.write(parts.join(''));
   w.document.close();
   setTimeout(function(){ w.print(); },400);
@@ -1993,14 +2021,61 @@ function delConta(id,_ok){
 // Protecao 1.350 -> 350 tirou 5 x 1.000 do C6), e editar despesa de cartao mudava faturas ja pagas.
 // Agora o novo valor vale a partir do mes aberto na tela: o registro antigo e encerrado no mes
 // anterior e um novo continua dali em diante. Passado, extrato e saldo ficam como estavam.
-function precisaDividir(item,novoVal,mesNovo){
+// `outraMudanca`: algo alem do valor que tambem reescreveria o passado (ex: despesa trocada de cartao).
+function precisaDividir(item,novoVal,mesNovo,outraMudanca){
   if(item.recor==='Unico'||item.recor==='Parcelado') return false;
-  if(centavos(novoVal)===centavos(item.valor)) return false;
+  if(item.fimMes&&item.fimMes<mesNovo) return false; // ja encerrada antes desse mes: nao ha "dali pra frente"
+  if(!outraMudanca&&centavos(novoVal)===centavos(item.valor)) return false;
   var ini=item.inicioMes||item.mes||item.mesCad||MA;
   return ini<mesNovo; // ha meses antes do mes escolhido: preserva-los
 }
-function confirmarNovoValor(item,novoVal,mesNovo){
-  return confirmar('O novo valor ('+fmt(novoVal)+') vale a partir de '+mn(mesNovo)+'.\n\nOs meses anteriores continuam com '+fmt(item.valor)+' — o saldo, o extrato e o histórico não mudam.\n\nPara mudar a partir de outro mês, cancele, escolha o mês no topo da tela e edite de novo.',{ok:'Confirmar'});
+function confirmarNovoValor(item,novoVal,mesNovo,outraMudanca){
+  var mudVal=centavos(novoVal)!==centavos(item.valor), partes=[];
+  if(mudVal) partes.push('novo valor: '+fmt(novoVal));
+  if(outraMudanca) partes.push(outraMudanca);
+  return confirmar('A alteração ('+partes.join('; ')+') vale a partir de '+mn(mesNovo)+'.\n\nOs meses anteriores continuam como estavam'+(mudVal?' (com '+fmt(item.valor)+')':'')+' — o saldo, o extrato, as faturas já fechadas e o histórico não mudam.\n\nPara mudar a partir de outro mês, cancele, escolha o mês no topo da tela e edite de novo.',{ok:'Confirmar'});
+}
+// Trocar o cartao (ou conta<->cartao) de uma despesa, ou o dia de cobranca no cartao quando isso muda
+// a fatura em que ela cai, mexe em faturas passadas (ja pagas). Devolve a descricao da mudanca, ou ''.
+// Caso real testado: "Apple Family" do Itau para o Neon alterava 3 faturas pagas de cada cartao e
+// o app passava a pedir "Pagar diferenca" no Neon.
+function mudancaCobranca(x,via,qual,dia){
+  var d=D();
+  if(via!==x.via||(via==='cartao'&&qual!==x.qual)){
+    if(via==='cartao'){ var c=d.cartoes.find(function(k){ return k.id===qual; }); return 'agora no cartão '+(c?c.nome:''); }
+    if(x.via==='cartao'){ var ct=d.contas.find(function(k){ return k.id===qual; }); return 'agora paga pela conta'+(ct?' '+ct.banco:''); }
+  }
+  if(via==='cartao'&&x.via==='cartao'&&dia!==x.diaVenc){
+    var c2=d.cartoes.find(function(k){ return k.id===qual; });
+    if(c2&&shiftFaturaCartao(c2,dia)!==shiftFaturaCartao(c2,x.diaVenc||1)) return 'cobrança no dia '+dia+', que cai em outra fatura';
+  }
+  return '';
+}
+// Pagamentos antigos estao ligados ao extrato so pelo TEXTO (nome do cartao, descricao da despesa).
+// Antes de renomear, grava os ids desses lancamentos; senao, depois do novo nome, o app deixava de
+// reconhece-los: o cartao renomeado mostrava faturas pagas como "pago R$ 0,00 — Pagar diferenca"
+// (pagaria de novo) e o estorno de receita/despesa nao achava mais o lancamento.
+var MESES_ABR=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+// Lancamentos antigos (da epoca da planilha) nao tem id. Ligar um deles por "id undefined" casaria com
+// TODOS os outros sem id (um estorno apagaria dezenas de lancamentos): da um id proprio antes de ligar.
+function idDoLancamento(e){ if(e.id==null) e.id=nid(); return e.id; }
+function fixarPagamentosFatura(cart){
+  var nome=cart.nome.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  var re=new RegExp('^(Fatura|Entrada fatura) '+nome+'( parcial| diferenca)? \\(('+MESES_ABR.join('|')+') (\\d{4})\\)$');
+  D().extrato.forEach(function(e){
+    var m=re.exec(e.desc||''); if(!m) return;
+    var mes=m[4]+'-'+pad2(MESES_ABR.indexOf(m[3])+1);
+    cart.fatExIds=cart.fatExIds||{}; var l=(cart.fatExIds[mes]=cart.fatExIds[mes]||[]);
+    var id=idDoLancamento(e); if(l.indexOf(id)<0) l.push(id);
+  });
+}
+function fixarLancamentosDoItem(item,tipo,sinal){
+  Object.keys(item.pagamentos||{}).forEach(function(mes){
+    var pag=item.pagamentos[mes];
+    if(!pag||!(pag.pago||pag.parcial)||pag.viaFatura||(pag.exIds&&pag.exIds.length)) return;
+    var l=lancamentosDoPagamento(pag,tipo,item.desc,mes,sinal);
+    if(l.length) pag.exIds=l.map(idDoLancamento);
+  });
 }
 function dividirRecorrencia(lista,item,mesNovo,novoValor){
   var novo=JSON.parse(JSON.stringify(item));
@@ -2013,7 +2088,7 @@ function dividirRecorrencia(lista,item,mesNovo,novoValor){
   item.pulados=(item.pulados||[]).filter(function(m){ return m<mesNovo; });
   if(!novo.pulados.length) delete novo.pulados;
   if(!item.pulados.length) delete item.pulados;
-  item.fimMes=mesAnterior(mesNovo,1); // o novo herda o fimMes antigo (se havia), o antigo termina antes do novo valor
+  if(!item.fimMes||item.fimMes>=mesNovo) item.fimMes=mesAnterior(mesNovo,1); // o novo herda o fimMes antigo (se havia), o antigo termina antes do novo valor — nunca estende um fim que ja era anterior
   lista.push(novo);
   return novo;
 }
@@ -2100,6 +2175,9 @@ function delDesp(id,_ok){
 }
 function excluirDespApenasMes(id,mes){
   var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
+  // mes ja pago: o pagamento ficaria no extrato (saldo) sem a despesa aparecer em lugar nenhum
+  var pg=x.pagamentos&&x.pagamentos[mes];
+  if(pg&&(pg.pago||pg.parcial)&&!pg.viaFatura){ toast('Esta despesa tem pagamento em '+mn(mes)+' — estorne o pagamento antes de excluir este mês','r'); return; }
   if(!x.pulados) x.pulados=[];
   if(x.pulados.indexOf(mes)<0) x.pulados.push(mes);
   toast('Despesa removida apenas de '+mn(mes),'g');
@@ -2129,7 +2207,10 @@ function edConta(id){ var c=D().contas.find(function(x){ return x.id===id; }); o
 function edRec(id){
   var r=D().receitas.find(function(x){ return x.id===id; });
   var opts=D().contas.map(function(c){ return '<option value="'+c.id+'"'+(c.id===r.contaId?' selected':'')+'>'+esc(c.banco)+'</option>'; }).join('');
-  var tipoOpts=['Contrato fixo','Avulso','Salario','Freelance','Aluguel','Outros'].map(function(t){ return '<option'+(t===r.tipo?' selected':'')+'>'+t+'</option>'; }).join('');
+  // mesma lista do cadastro (+ o tipo atual, se for outro): antes faltava "Comissao" e editar uma
+  // receita de comissao (ate so pra mudar o dia) trocava o tipo dela para "Contrato fixo" sem avisar
+  var tipos=['Contrato fixo','Avulso','Comissao','Salario','Freelance','Aluguel','Outros']; if(r.tipo&&tipos.indexOf(r.tipo)<0) tipos.push(r.tipo);
+  var tipoOpts=tipos.map(function(t){ return '<option value="'+esc(t)+'"'+(t===r.tipo?' selected':'')+'>'+esc(t)+'</option>'; }).join('');
   openModal('Editar receita',
     '<div class="frow">'+mf('e-desc','Descricao',r.desc)+mf('e-val','Valor previsto',r.valor,'valor')+'</div>'+
     '<div class="frow">'+mf('e-dia','Dia vencimento',r.diaVenc,'number')+mf('e-mes','Mes ref.',r.mes||MA,'month')+'</div>'+
@@ -2140,11 +2221,14 @@ function edRec(id){
     function(){
       var novoVal=lerValor('e-val'); if(novoVal===null||novoVal<=0) return valorInvalido();
       var c={desc:el('e-desc').value||r.desc, diaVenc:parseInt(el('e-dia').value)||r.diaVenc, mes:el('e-mes').value||r.mes, tipo:el('e-tipo').value||r.tipo, contaId:parseInt(el('e-conta').value)||r.contaId};
-      function aplicar(it){ it.desc=c.desc; it.diaVenc=c.diaVenc; it.tipo=c.tipo; it.contaId=c.contaId; }
+      function aplicar(it){ if(it.desc!==c.desc) fixarLancamentosDoItem(it,'Receita',1); it.desc=c.desc; it.diaVenc=c.diaVenc; it.tipo=c.tipo; it.contaId=c.contaId; }
       var mesNovo=filtroRecMes||MA;
       if(precisaDividir(r,novoVal,mesNovo)){
         confirmarNovoValor(r,novoVal,mesNovo).then(function(ok){
           if(!ok) return;
+          // dados recarregados enquanto a confirmacao estava aberta: `r` ja nao esta na lista (dividir
+          // agora duplicaria a receita na versao nova)
+          if(D().receitas.indexOf(r)<0){ toast('Os dados foram atualizados enquanto a confirmação estava aberta — edite de novo','a'); return; }
           aplicar(r); dividirRecorrencia(D().receitas,r,mesNovo,novoVal);
           closeModal(); renderTudo(); syncToSheets(); toast('Novo valor a partir de '+mn(mesNovo),'g');
         });
@@ -2157,7 +2241,7 @@ function edRec(id){
 function edDesp(id){
   var x=D().despesas.find(function(d){ return d.id===id; }); var d=D();
   var optsVia=d.contas.map(function(c){ return '<option value="conta:'+c.id+'"'+(x.via==='conta'&&x.qual===c.id?' selected':'')+'>Conta: '+esc(c.banco)+'</option>'; }).join('')+d.cartoes.map(function(c){ return '<option value="cartao:'+c.id+'"'+(x.via==='cartao'&&x.qual===c.id?' selected':'')+'>Cartao: '+esc(c.nome)+'</option>'; }).join('');
-  var optsCat=CATS.map(function(c){ return '<option'+(c===x.cat?' selected':'')+'>'+c+'</option>'; }).join('');
+  var optsCat=CATS.concat(x.cat&&CATS.indexOf(x.cat)<0?[x.cat]:[]).map(function(c){ return '<option value="'+esc(c)+'"'+(c===x.cat?' selected':'')+'>'+esc(c)+'</option>'; }).join(''); // categoria fora da lista nao vira outra ao editar
   openModal('Editar despesa',
     '<div class="frow">'+mf('e-desc','Descricao',x.desc)+mf('e-val','Valor',x.valor,'valor')+'</div>'+
     '<div class="frow">'+mf('e-dia','Dia vencimento',x.diaVenc,'number')+
@@ -2167,23 +2251,28 @@ function edDesp(id){
     function(){
       var novoVal=lerValor('e-val'); if(novoVal===null||novoVal<=0) return valorInvalido();
       var via=el('e-via').value, partes=via?via.split(':'):null;
-      var c={desc:el('e-desc').value||x.desc, diaVenc:parseInt(el('e-dia').value)||x.diaVenc, cat:el('e-cat').value||x.cat};
-      function aplicar(it){ it.desc=c.desc; it.diaVenc=c.diaVenc; it.cat=c.cat; if(partes){ it.via=partes[0]; it.qual=parseInt(partes[1]); } }
+      var c={desc:el('e-desc').value||x.desc, diaVenc:parseInt(el('e-dia').value)||x.diaVenc, cat:el('e-cat').value||x.cat, via:partes?partes[0]:x.via, qual:partes?parseInt(partes[1]):x.qual};
+      // descricao/categoria valem para o registro todo; valor, cartao/conta e dia de cobranca, numa
+      // despesa que se repete, so do mes aberto na tela em diante (senao reescrevem faturas ja pagas)
+      function aplicarNome(it){ if(it.desc!==c.desc) fixarLancamentosDoItem(it,'Despesa',-1); it.desc=c.desc; it.cat=c.cat; }
+      function aplicarCobranca(it){ it.diaVenc=c.diaVenc; it.via=c.via; it.qual=c.qual; }
       var mesNovo=filtroDespMes||MA;
-      if(precisaDividir(x,novoVal,mesNovo)){
-        confirmarNovoValor(x,novoVal,mesNovo).then(function(ok){
+      var mudCobr=mudancaCobranca(x,c.via,c.qual,c.diaVenc);
+      if(precisaDividir(x,novoVal,mesNovo,!!mudCobr)){
+        confirmarNovoValor(x,novoVal,mesNovo,mudCobr).then(function(ok){
           if(!ok) return;
-          aplicar(x); dividirRecorrencia(D().despesas,x,mesNovo,novoVal);
-          closeModal(); renderTudo(); syncToSheets(); toast('Novo valor a partir de '+mn(mesNovo),'g');
+          if(D().despesas.indexOf(x)<0){ toast('Os dados foram atualizados enquanto a confirmação estava aberta — edite de novo','a'); return; }
+          aplicarNome(x); var novo=dividirRecorrencia(D().despesas,x,mesNovo,novoVal); aplicarCobranca(novo);
+          closeModal(); renderTudo(); syncToSheets(); toast('Alteração vale a partir de '+mn(mesNovo),'g');
         });
         return false;
       }
-      aplicar(x); x.valor=novoVal;
+      aplicarNome(x); aplicarCobranca(x); x.valor=novoVal;
       el('sb-saldo').textContent=fmt(saldoTotal());
       rDesp(); rCart(); rDash();
     });
 }
-function edCart(id){ var c=D().cartoes.find(function(x){ return x.id===id; }); openModal('Editar cartao','<div class="frow">'+mf('e-nome','Nome',c.nome)+mf('e-lim','Limite',c.lim,'valor')+'</div><div class="frow">'+mf('e-fech','Fechamento',c.fech,'number')+mf('e-venc','Vencimento',c.venc,'number')+'</div>',function(){ c.nome=el('e-nome').value||c.nome; var nl=lerValor('e-lim'); if(nl===null||nl<0) return valorInvalido(); c.lim=nl; c.fech=parseInt(el('e-fech').value)||c.fech; c.venc=parseInt(el('e-venc').value)||c.venc; }); }
+function edCart(id){ var c=D().cartoes.find(function(x){ return x.id===id; }); openModal('Editar cartao','<div class="frow">'+mf('e-nome','Nome',c.nome)+mf('e-lim','Limite',c.lim,'valor')+'</div><div class="frow">'+mf('e-fech','Fechamento',c.fech,'number')+mf('e-venc','Vencimento',c.venc,'number')+'</div>',function(){ var nn=el('e-nome').value.trim()||c.nome; if(nn!==c.nome) fixarPagamentosFatura(c); c.nome=nn; var nl=lerValor('e-lim'); if(nl===null||nl<0) return valorInvalido(); c.lim=nl; c.fech=parseInt(el('e-fech').value)||c.fech; c.venc=parseInt(el('e-venc').value)||c.venc; }); }
 function edLanc(id){ var l=D().lancamentos.find(function(x){ return x.id===id; }); if(!l) return; openModal('Editar lancamento','<div class="frow">'+mf('e-desc','Descricao',l.desc)+mf('e-val','Valor total',l.valor,'valor')+'</div><div class="frow">'+mf('e-data','Data',l.data,'date')+mf('e-parc','Parcelas',l.parcelas,'number')+'</div>',function(){ l.desc=el('e-desc').value||l.desc; var nv=lerValor('e-val'); if(nv===null||nv<=0) return valorInvalido(); l.valor=nv; l.data=el('e-data').value||l.data; l.parcelas=parseInt(el('e-parc').value)||l.parcelas; }); }
 
 // ===== MEU PERFIL =====
@@ -2258,8 +2347,11 @@ function restaurarBackupArquivo(input){
       input.value=''; return;
     }
     var dataBkp=parsed&&parsed.dataExportacao?fmtDataBR(parsed.dataExportacao.split('T')[0]):'data desconhecida';
-    confirmar('Isso vai SUBSTITUIR todos os seus dados atuais pelos dados do backup de '+dataBkp+'. Essa acao nao pode ser desfeita. Deseja continuar?',{ok:'Substituir',perigo:true}).then(function(ok){
+    // backup de OUTRA pessoa (ex: computador da familia): avisa com todas as letras antes de substituir
+    var deOutro=parsed&&parsed.usuario&&parsed.usuario!==CU;
+    confirmar((deOutro?'ATENCAO: este backup e do usuario "'+parsed.usuario+'", nao seu ("'+CU+'"). Os dados dele vao ocupar o lugar dos seus.\n\n':'')+'Isso vai SUBSTITUIR todos os seus dados atuais pelos dados do backup de '+dataBkp+'. Essa acao nao pode ser desfeita. Deseja continuar?',{ok:deOutro?'Substituir pelos dados de '+parsed.usuario:'Substituir',perigo:true}).then(function(ok){
     if(!ok){ input.value=''; return; }
+    ultimaAcaoFatura=null; fatCtx=null;
     dados.ajustesFatura=dados.ajustesFatura||[];
     dados.parcelamentosFatura=dados.parcelamentosFatura||[];
     dados.adiantamentosFatura=dados.adiantamentosFatura||[];
