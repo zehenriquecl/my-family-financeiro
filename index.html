@@ -714,8 +714,15 @@ window.addEventListener('beforeunload',function(e){
 // Garante que todas as listas existam (dados antigos ou de backup podem nao ter alguma).
 function normalizarDB(db){
   db=db||emptyDB();
-  ['contas','receitas','despesas','cartoes','lancamentos','ajustesFatura','parcelamentosFatura','adiantamentosFatura','extrato'].forEach(function(k){ if(!Array.isArray(db[k])) db[k]=[]; });
+  var listas=['contas','receitas','despesas','cartoes','lancamentos','ajustesFatura','parcelamentosFatura','adiantamentosFatura','extrato'];
+  listas.forEach(function(k){ if(!Array.isArray(db[k])) db[k]=[]; });
+  // dado antigo/backup sem esses campos derrubava todas as telas (ex: receita sem "pagamentos")
+  db.receitas.concat(db.despesas).forEach(function(x){ if(!x.pagamentos||typeof x.pagamentos!=='object') x.pagamentos={}; });
+  db.cartoes.forEach(function(c){ if(!c.fatStatus||typeof c.fatStatus!=='object') c.fatStatus={}; });
+  // o proximo id nunca pode repetir um existente (backup sem nextId voltava a contar do 1 e o app
+  // passava a editar/apagar o registro errado por ter dois com o mesmo id)
   if(typeof db.nextId!=='number') db.nextId=0;
+  listas.forEach(function(k){ db[k].forEach(function(x){ if(x&&typeof x.id==='number'&&x.id>db.nextId) db.nextId=x.id; }); });
   return db;
 }
 function loadFromSheets(user,callback){
@@ -1607,6 +1614,11 @@ function confirmarFatura(){
       toast('Valor menor que a fatura ('+fmt(fatCtx.fLiq)+'). Use o modo Parcial para pagar menos.','r');
       return false;
     }
+    // valor acima da fatura: a sobra sai da conta e nao vira credito em lugar nenhum (pega erro de digitacao)
+    if(val > fatCtx.fLiq + 0.01 && !fatCtx.acimaOk){
+      confirmar('O valor digitado ('+fmt(val)+') é maior que a fatura ('+fmt(fatCtx.fLiq)+').\n\nA diferença sai da conta mas NÃO fica como crédito no cartão. Confira se não foi erro de digitação.',{ok:'Pagar '+fmt(val)}).then(function(ok){ if(ok&&fatCtx){ fatCtx.acimaOk=true; saveModal(); } });
+      return false;
+    }
     var exId=null;
     if(ct){
       if(!saldoSuficiente(cid,val)){
@@ -1624,6 +1636,7 @@ function confirmarFatura(){
     var pago=maskedVal('fat-pago-agora');
     var prox=maskedVal('fat-prox');
     if(!(pago>0)&&!(prox>0)){ toast('Informe quanto paga agora e/ou quanto vai para a próxima fatura','r'); return false; }
+    if(pago>fatCtx.fLiq+0.01){ toast('O valor pago agora é maior que a fatura ('+fmt(fatCtx.fLiq)+') — use o tipo Total','r'); return false; }
     var exId=null;
     if(ct&&pago>0){
       if(!saldoSuficiente(cid,pago)){
@@ -1667,6 +1680,11 @@ function confirmarFatura(){
   } else if(tipo==='adiantar'){
     var adiant=maskedVal('fat-adiant');
     if(!(adiant>0)){ toast('Informe o valor do adiantamento','r'); return false; } // antes gravava adiantamento de R$ 0,00
+    // acima do saldo da fatura: a sobra so e aproveitada se entrarem mais compras NESTA fatura (nao passa pra seguinte)
+    if(adiant>fatCtx.fLiq+0.01&&!fatCtx.acimaOk){
+      confirmar('O adiantamento ('+fmt(adiant)+') é maior que o saldo atual desta fatura ('+fmt(fatCtx.fLiq)+').\n\nA diferença só é aproveitada se você lançar mais compras nesta mesma fatura — ela não passa para a fatura seguinte. Adiantar mesmo assim?',{ok:'Adiantar '+fmt(adiant)}).then(function(ok){ if(ok&&fatCtx){ fatCtx.acimaOk=true; saveModal(); } });
+      return false;
+    }
     var exId=null;
     if(ct&&adiant>0){
       if(!saldoSuficiente(cid,adiant)){
@@ -2000,13 +2018,18 @@ function printRel(){
 }
 
 // ===== SAVES =====
-function saveContaForm(){ var banco=el('fc-banco').value.trim(); var sal=maskedVal('fc-saldo'); if(!banco) return; D().contas.push({id:nid(),banco:banco,saldoInicial:sal}); closeForm('f-conta'); el('fc-banco').value=''; el('fc-saldo').value=''; rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
-function saveRecForm(){ var desc=el('fr-desc').value.trim(); var val=maskedVal('fr-val'); var diaVenc=parseInt(el('fr-dia').value)||1; if(!desc||!val){ el('fr-err').style.display='block'; return; } el('fr-err').style.display='none'; var ini=el('fr-inicio')?el('fr-inicio').value||MA:MA; D().receitas.push({id:nid(),desc:desc,tipo:el('fr-tipo').value,diaVenc:diaVenc,forma:el('fr-forma').value,contaId:parseInt(el('fr-conta').value),recor:el('fr-recor').value,inicioMes:ini,mes:el('fr-mes').value||MA,valor:val,pagamentos:{}}); closeForm('f-rec'); el('fr-desc').value=''; el('fr-val').value=''; el('fr-dia').value=''; rRec(); rDash(); syncToSheets(); }
-function saveDespForm(){ var desc=el('fd-desc').value.trim(); var val=maskedVal('fd-val'); var diaVenc=parseInt(el('fd-dia').value)||1; if(!desc||!val){ el('fd-err').style.display='block'; return; } el('fd-err').style.display='none'; var ini=el('fd-inicio')?el('fd-inicio').value||MA:MA; var _via=el('fd-via').value, _qual=parseInt(el('fd-qual').value), _lista=_via==='cartao'?D().cartoes:D().contas;
-  if(_lista.length&&!_lista.some(function(c){ return c.id===_qual; })){ el('fd-err').textContent='Escolha '+(_via==='cartao'?'o cartão':'a conta')+'.'; el('fd-err').style.display='block'; return; }
-  if(_via==='cartao'&&!_lista.length){ el('fd-err').textContent='Cadastre um cartão antes, ou escolha pagar via conta.'; el('fd-err').style.display='block'; return; }
+// Dia do mes digitado: 1 a 31 (vazio = `padrao`; null = invalido). Antes "-5" fazia uma despesa de
+// dezembro vencer em 25/11 e "45" jogava a compra do cartao para outra fatura.
+function lerDia(id,padrao){ var t=String((el(id)||{}).value||'').trim(); if(!t) return padrao===undefined?null:padrao; var n=Number(t); return n%1===0&&n>=1&&n<=31?n:null; }
+// Mostra o erro do formulario com o texto certo (antes a mensagem de um erro anterior ficava presa)
+function erroForm(id,msg){ var e=el(id); if(e){ e.textContent=msg; e.style.display='block'; } return false; }
+function saveContaForm(){ var banco=el('fc-banco').value.trim(); var sal=maskedVal('fc-saldo'); if(!banco){ toast('Informe o nome do banco','r'); return; } D().contas.push({id:nid(),banco:banco,saldoInicial:sal}); closeForm('f-conta'); el('fc-banco').value=''; el('fc-saldo').value=''; rContas(); el('sb-saldo').textContent=fmt(saldoTotal()); initSelects(); syncToSheets(); }
+function saveRecForm(){ var desc=el('fr-desc').value.trim(); var val=maskedVal('fr-val'); var diaVenc=lerDia('fr-dia',1); if(!desc||!val) return erroForm('fr-err','Preencha descrição e valor.'); if(diaVenc===null) return erroForm('fr-err','Dia de vencimento: use um número de 1 a 31.'); el('fr-err').style.display='none'; var ini=el('fr-inicio')?el('fr-inicio').value||MA:MA; D().receitas.push({id:nid(),desc:desc,tipo:el('fr-tipo').value,diaVenc:diaVenc,forma:el('fr-forma').value,contaId:parseInt(el('fr-conta').value),recor:el('fr-recor').value,inicioMes:ini,mes:el('fr-mes').value||MA,valor:val,pagamentos:{}}); closeForm('f-rec'); el('fr-desc').value=''; el('fr-val').value=''; el('fr-dia').value=''; rRec(); rDash(); syncToSheets(); }
+function saveDespForm(){ var desc=el('fd-desc').value.trim(); var val=maskedVal('fd-val'); var diaVenc=lerDia('fd-dia',1); if(!desc||!val) return erroForm('fd-err','Preencha descrição e valor.'); if(diaVenc===null) return erroForm('fd-err','Dia de vencimento: use um número de 1 a 31.'); if(el('fd-recor').value==='Parcelado'&&!(parseInt(el('fd-parc').value)>=2)) return erroForm('fd-err','Informe a quantidade de parcelas (2 ou mais).'); el('fd-err').style.display='none'; var ini=el('fd-inicio')?el('fd-inicio').value||MA:MA; var _via=el('fd-via').value, _qual=parseInt(el('fd-qual').value), _lista=_via==='cartao'?D().cartoes:D().contas;
+  if(_lista.length&&!_lista.some(function(c){ return c.id===_qual; })) return erroForm('fd-err','Escolha '+(_via==='cartao'?'o cartão':'a conta')+'.');
+  if(_via==='cartao'&&!_lista.length) return erroForm('fd-err','Cadastre um cartão antes, ou escolha pagar via conta.');
   var obj={id:nid(),desc:desc,cat:el('fd-cat').value,diaVenc:diaVenc,via:_via,qual:isNaN(_qual)?null:_qual,recor:el('fd-recor').value,mesCad:ini,inicioMes:ini,valor:val,pagamentos:{}}; if(obj.recor==='Parcelado') obj.parcelas=parseInt(el('fd-parc').value)||1; D().despesas.push(obj); closeForm('f-desp'); el('fd-desc').value=''; el('fd-val').value=''; el('fd-dia').value=''; rDesp(); rDash(); rCart(); syncToSheets(); }
-function saveCartForm(){ var nome=el('fct-nome').value.trim(); var fech=parseInt(el('fct-fech').value); var venc=parseInt(el('fct-venc').value); if(!nome||!fech||!venc) return; D().cartoes.push({id:nid(),nome:nome,band:el('fct-band').value,fech:fech,venc:venc,lim:maskedVal('fct-lim'),mesRef:'fech',fatStatus:{}}); closeForm('f-cart'); el('fct-nome').value=''; el('fct-fech').value=''; el('fct-venc').value=''; el('fct-lim').value=''; rCart(); initSelects(); syncToSheets(); }
+function saveCartForm(){ var nome=el('fct-nome').value.trim(); var fech=lerDia('fct-fech'); var venc=lerDia('fct-venc'); if(!nome){ toast('Informe o nome do cartão','r'); return; } if(fech===null||venc===null){ toast('Fechamento e vencimento: dias de 1 a 31','r'); return; } D().cartoes.push({id:nid(),nome:nome,band:el('fct-band').value,fech:fech,venc:venc,lim:maskedVal('fct-lim'),mesRef:'fech',fatStatus:{}}); closeForm('f-cart'); el('fct-nome').value=''; el('fct-fech').value=''; el('fct-venc').value=''; el('fct-lim').value=''; rCart(); initSelects(); syncToSheets(); }
 function saveLancForm(){ var desc=el('fl-desc').value.trim(); var val=maskedVal('fl-val'); var cid=parseInt(el('fl-cart').value); var parc=parseInt(el('fl-parc').value)||1; var data=el('fl-data').value; if(!desc||!val||!data||isNaN(cid)||cid<=0){ el('fl-err').style.display='block'; return; } el('fl-err').style.display='none'; D().lancamentos.push({id:nid(),desc:desc,cartaoId:cid,cat:el('fl-cat').value,valor:val,parcelas:parc,data:data}); closeForm('f-lanc'); el('fl-desc').value=''; el('fl-val').value=''; rCart(); rLanc(); rDash(); syncToSheets(); }
 
 // ===== DELETES =====
@@ -2021,6 +2044,15 @@ function delConta(id,_ok){
 // Protecao 1.350 -> 350 tirou 5 x 1.000 do C6), e editar despesa de cartao mudava faturas ja pagas.
 // Agora o novo valor vale a partir do mes aberto na tela: o registro antigo e encerrado no mes
 // anterior e um novo continua dali em diante. Passado, extrato e saldo ficam como estavam.
+// Mes a partir do qual uma alteracao vale. Recorrencia anual so acontece no seu mes do ano: a mudanca
+// vale da proxima ocorrencia (antes, editar pela tela Cartoes com outro mes no filtro mudava o mes de
+// aniversario da cobranca anual para o mes do filtro).
+function mesDaMudanca(item,mes){
+  if(item.recor!=='Anual') return mes;
+  var mm=(item.inicioMes||item.mes||item.mesCad||mes).slice(5,7);
+  for(var i=0;i<12&&mes.slice(5,7)!==mm;i++) mes=mesPosterior(mes,1);
+  return mes;
+}
 // `outraMudanca`: algo alem do valor que tambem reescreveria o passado (ex: despesa trocada de cartao).
 function precisaDividir(item,novoVal,mesNovo,outraMudanca){
   if(item.recor==='Unico'||item.recor==='Parcelado') return false;
@@ -2139,11 +2171,29 @@ function modalExcluirRecorrente(tipo,item,mes){
   el('modal').classList.add('open');
   editCtx=null;
 }
-function encerrarRecorrencia(tipo,id,mes){
+// Despesa de cartao: a ocorrencia do mes `mes` cai numa fatura ja paga/parcelada? -> {cart,fm,st} ou null.
+// (Os "pagamentos" de despesa de cartao sao gravados pelo mes da FATURA e nao tem estorno individual.)
+function faturaFechadaDaDesp(x,mes){
+  if(!x||x.via!=='cartao') return null;
+  var cart=D().cartoes.find(function(c){ return c.id===x.qual; }); if(!cart) return null;
+  var fm=mesFaturaDaDesp(x,cart,mes), st=statusFat(cart,fm);
+  return st!=='aberta'&&ocorrDespCartao(x,cart,fm)?{cart:cart,fm:fm,st:st}:null;
+}
+function msgFaturaFechada(x,mes,f,acao){
+  return 'A fatura de '+mn(f.fm)+' do '+f.cart.nome+' já está '+({paga:'paga',parcial:'paga em parte',parcelada:'parcelada'}[f.st]||f.st)+' e inclui "'+x.desc+'" de '+mn(mes)+'.\n\n'+acao+' tira a despesa dessa fatura, e o cartão vai mostrar a diferença em relação ao que foi pago.\n\nContinuar mesmo assim?';
+}
+function encerrarRecorrencia(tipo,id,mes,_ok){
   var lista=tipo==='rec'?D().receitas:D().despesas;
   var item=lista.find(function(x){ return x.id===id; }); if(!item) return;
-  var futuroPago=Object.keys(item.pagamentos||{}).filter(function(m){ return m>=mes&&(item.pagamentos[m].pago||item.pagamentos[m].parcial); });
-  if(futuroPago.length){ toast('Ha pagamento registrado em '+futuroPago.map(mn).join(', ')+' — estorne antes de encerrar','r'); return; }
+  if(tipo==='desp'&&item.via==='cartao'){
+    // antes: bloqueava com "estorne antes" (despesa de cartao nao tem estorno) olhando o mes errado —
+    // nos cartoes que jogam a cobranca pra fatura seguinte, bloqueava mesmo com a fatura daquele mes aberta
+    var fat=faturaFechadaDaDesp(item,mes);
+    if(fat&&!_ok){ confirmar(msgFaturaFechada(item,mes,fat,'Encerrar a partir de '+mn(mes))+'\n\n(Para não mexer nela, encerre a partir de '+mn(mesPosterior(mes,1))+'.)',{ok:'Encerrar',perigo:true}).then(function(ok){ if(ok) encerrarRecorrencia(tipo,id,mes,true); }); return; }
+  } else {
+    var futuroPago=Object.keys(item.pagamentos||{}).filter(function(m){ return m>=mes&&(item.pagamentos[m].pago||item.pagamentos[m].parcial); });
+    if(futuroPago.length){ toast('Ha pagamento registrado em '+futuroPago.map(mn).join(', ')+' — estorne antes de encerrar','r'); return; }
+  }
   item.fimMes=mesAnterior(mes,1);
   toast('Encerrada a partir de '+mn(mes)+' — meses anteriores mantidos','g');
   rRec(); rDesp(); rCart(); renderAll(); syncToSheets();
@@ -2173,8 +2223,10 @@ function delDesp(id,_ok){
   }
   modalExcluirRecorrente('desp',x,filtroDespMes||MA);
 }
-function excluirDespApenasMes(id,mes){
+function excluirDespApenasMes(id,mes,_ok){
   var x=D().despesas.find(function(d){ return d.id===id; }); if(!x) return;
+  var fat=faturaFechadaDaDesp(x,mes);
+  if(fat&&!_ok){ confirmar(msgFaturaFechada(x,mes,fat,'Excluir '+mn(mes)),{ok:'Excluir',perigo:true}).then(function(ok){ if(ok) excluirDespApenasMes(id,mes,true); }); return; }
   // mes ja pago: o pagamento ficaria no extrato (saldo) sem a despesa aparecer em lugar nenhum
   var pg=x.pagamentos&&x.pagamentos[mes];
   if(pg&&(pg.pago||pg.parcial)&&!pg.viaFatura){ toast('Esta despesa tem pagamento em '+mn(mes)+' — estorne o pagamento antes de excluir este mês','r'); return; }
@@ -2220,9 +2272,10 @@ function edRec(id){
     '</div>',
     function(){
       var novoVal=lerValor('e-val'); if(novoVal===null||novoVal<=0) return valorInvalido();
-      var c={desc:el('e-desc').value||r.desc, diaVenc:parseInt(el('e-dia').value)||r.diaVenc, mes:el('e-mes').value||r.mes, tipo:el('e-tipo').value||r.tipo, contaId:parseInt(el('e-conta').value)||r.contaId};
+      var c={desc:el('e-desc').value||r.desc, diaVenc:lerDia('e-dia',r.diaVenc), mes:el('e-mes').value||r.mes, tipo:el('e-tipo').value||r.tipo, contaId:parseInt(el('e-conta').value)||r.contaId};
+      if(c.diaVenc===null){ toast('Dia de vencimento: use um número de 1 a 31','r'); return false; }
       function aplicar(it){ if(it.desc!==c.desc) fixarLancamentosDoItem(it,'Receita',1); it.desc=c.desc; it.diaVenc=c.diaVenc; it.tipo=c.tipo; it.contaId=c.contaId; }
-      var mesNovo=filtroRecMes||MA;
+      var mesNovo=mesDaMudanca(r,filtroRecMes||MA);
       if(precisaDividir(r,novoVal,mesNovo)){
         confirmarNovoValor(r,novoVal,mesNovo).then(function(ok){
           if(!ok) return;
@@ -2251,12 +2304,13 @@ function edDesp(id){
     function(){
       var novoVal=lerValor('e-val'); if(novoVal===null||novoVal<=0) return valorInvalido();
       var via=el('e-via').value, partes=via?via.split(':'):null;
-      var c={desc:el('e-desc').value||x.desc, diaVenc:parseInt(el('e-dia').value)||x.diaVenc, cat:el('e-cat').value||x.cat, via:partes?partes[0]:x.via, qual:partes?parseInt(partes[1]):x.qual};
+      var c={desc:el('e-desc').value||x.desc, diaVenc:lerDia('e-dia',x.diaVenc), cat:el('e-cat').value||x.cat, via:partes?partes[0]:x.via, qual:partes?parseInt(partes[1]):x.qual};
+      if(c.diaVenc===null){ toast('Dia de vencimento: use um número de 1 a 31','r'); return false; }
       // descricao/categoria valem para o registro todo; valor, cartao/conta e dia de cobranca, numa
       // despesa que se repete, so do mes aberto na tela em diante (senao reescrevem faturas ja pagas)
       function aplicarNome(it){ if(it.desc!==c.desc) fixarLancamentosDoItem(it,'Despesa',-1); it.desc=c.desc; it.cat=c.cat; }
       function aplicarCobranca(it){ it.diaVenc=c.diaVenc; it.via=c.via; it.qual=c.qual; }
-      var mesNovo=filtroDespMes||MA;
+      var mesNovo=mesDaMudanca(x,filtroDespMes||MA);
       var mudCobr=mudancaCobranca(x,c.via,c.qual,c.diaVenc);
       if(precisaDividir(x,novoVal,mesNovo,!!mudCobr)){
         confirmarNovoValor(x,novoVal,mesNovo,mudCobr).then(function(ok){
@@ -2272,7 +2326,7 @@ function edDesp(id){
       rDesp(); rCart(); rDash();
     });
 }
-function edCart(id){ var c=D().cartoes.find(function(x){ return x.id===id; }); openModal('Editar cartao','<div class="frow">'+mf('e-nome','Nome',c.nome)+mf('e-lim','Limite',c.lim,'valor')+'</div><div class="frow">'+mf('e-fech','Fechamento',c.fech,'number')+mf('e-venc','Vencimento',c.venc,'number')+'</div>',function(){ var nn=el('e-nome').value.trim()||c.nome; if(nn!==c.nome) fixarPagamentosFatura(c); c.nome=nn; var nl=lerValor('e-lim'); if(nl===null||nl<0) return valorInvalido(); c.lim=nl; c.fech=parseInt(el('e-fech').value)||c.fech; c.venc=parseInt(el('e-venc').value)||c.venc; }); }
+function edCart(id){ var c=D().cartoes.find(function(x){ return x.id===id; }); openModal('Editar cartao','<div class="frow">'+mf('e-nome','Nome',c.nome)+mf('e-lim','Limite',c.lim,'valor')+'</div><div class="frow">'+mf('e-fech','Fechamento',c.fech,'number')+mf('e-venc','Vencimento',c.venc,'number')+'</div>',function(){ var nf=lerDia('e-fech',c.fech), nv=lerDia('e-venc',c.venc); if(nf===null||nv===null){ toast('Fechamento e vencimento: dias de 1 a 31','r'); return false; } var nl=lerValor('e-lim'); if(nl===null||nl<0) return valorInvalido(); var nn=el('e-nome').value.trim()||c.nome; if(nn!==c.nome) fixarPagamentosFatura(c); c.nome=nn; c.lim=nl; c.fech=nf; c.venc=nv; }); }
 function edLanc(id){ var l=D().lancamentos.find(function(x){ return x.id===id; }); if(!l) return; openModal('Editar lancamento','<div class="frow">'+mf('e-desc','Descricao',l.desc)+mf('e-val','Valor total',l.valor,'valor')+'</div><div class="frow">'+mf('e-data','Data',l.data,'date')+mf('e-parc','Parcelas',l.parcelas,'number')+'</div>',function(){ l.desc=el('e-desc').value||l.desc; var nv=lerValor('e-val'); if(nv===null||nv<=0) return valorInvalido(); l.valor=nv; l.data=el('e-data').value||l.data; l.parcelas=parseInt(el('e-parc').value)||l.parcelas; }); }
 
 // ===== MEU PERFIL =====
